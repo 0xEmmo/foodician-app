@@ -1,26 +1,94 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ========================================================= */
+/* TAILWIND V4 THEME — CSS VARIABLES FROM index.html         */
+/* ========================================================= */
+@theme {
+  --color-bg:       #050505;
+  --color-bg2:      #0F0F0F;
+  --color-bg3:      #161616;
+  --color-red:      #E8192C;
+  --color-red2:     #FF2E43;
+  --color-maroon:   #6B000A;
+  --color-yellow:   #F5C300;
+  --color-yellow2:  #FFD41B;
+  --color-white:    #FFFFFF;
+  --color-offwhite: #F5F5F5;
+  --color-gray:     #A0A0A0;
+  --color-gray2:    #262626;
+  --color-border:   rgba(232, 25, 44, 0.15);
+  --color-green:    #22C55E;
+
+  --font-bebas:  'Bebas Neue', sans-serif;
+  --font-dm:     'DM Sans', sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ========================================================= */
+/* BASE BODY STYLES                                          */
+/* ========================================================= */
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-offwhite);
+  font-family: var(--font-dm);
+  -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ========================================================= */
+/* SCROLLBAR HIDING UTILITIES                                */
+/* ========================================================= */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ========================================================= */
+/* PAGE SLIDE-IN ANIMATION                                   */
+/* ========================================================= */
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-in-up {
+  animation: slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ========================================================= */
+/* BAG BOP ANIMATION                                         */
+/* ========================================================= */
+@keyframes bop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.4); }
+  100% { transform: scale(1); }
+}
+.animate-bop {
+  animation: bop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ========================================================= */
+/* PULSE ANIMATION (confirm icon)                            */
+/* ========================================================= */
+@keyframes pulse-scale {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+.animate-pulse-scale {
+  animation: pulse-scale 2s infinite;
+}
+
+/* ========================================================= */
+/* SAFE-AREA SUPPORT                                         */
+/* ========================================================= */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .bottom-nav-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(70px + env(safe-area-inset-bottom));
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  .page-safe-pad {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  }
 }
