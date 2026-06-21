@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import { getAdminUnreadTotal } from '@/src/lib/chat';
 import type { PromoCode } from '@/src/lib/promos';
+import AdminSidebar, { COLLAPSED_W } from '@/src/components/AdminSidebar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ShopHour = { id: string; day_of_week: number; open_time: string; close_time: string; is_closed: boolean };
@@ -29,16 +30,6 @@ type Rating   = { id: string; order_id: string; item_name: string; rating: numbe
 
 type Tab = 'orders' | 'analytics' | 'products' | 'marketing' | 'messages' | 'customers' | 'reviews' | 'settings';
 
-const NAV: { id: Tab; label: string }[] = [
-  { id: 'orders',    label: 'Orders'    },
-  { id: 'analytics', label: 'Analytics' },
-  { id: 'products',  label: 'Products'  },
-  { id: 'marketing', label: 'Marketing' },
-  { id: 'messages',  label: 'Messages'  },
-  { id: 'customers', label: 'Customers' },
-  { id: 'reviews',   label: 'Reviews'   },
-  { id: 'settings',  label: 'Settings'  },
-];
 
 const inputStyle = { background: '#0F0F0F', border: '1px solid #262626', borderRadius: 8, padding: '0.75rem', color: '#fff', width: '100%', outline: 'none' };
 
@@ -269,59 +260,27 @@ export default function AdminPage() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', background: '#050505', color: '#F5F5F5', fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: '#050505', color: '#F5F5F5', fontFamily: "'DM Sans', sans-serif", display: 'flex' }}>
 
-      {/* ── Top Nav ─────────────────────────────────────────────────────────── */}
-      <div style={{ background: '#000', borderBottom: '1px solid #1a1a1a', position: 'sticky', top: 0, zIndex: 50, display: 'flex', alignItems: 'center', gap: 0, padding: '0 1.25rem', height: 54 }}>
-        {/* Brand */}
-        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.15rem', letterSpacing: 2, color: '#E8192C', paddingRight: '1.5rem', borderRight: '1px solid #1a1a1a', flexShrink: 0, lineHeight: 1 }}>
-          FOODICIAN<br /><span style={{ color: '#F5C300', fontSize: '0.65rem', letterSpacing: 3 }}>ADMIN</span>
-        </div>
+      {/* ── Sidebar ─────────────────────────────────────────────────────────── */}
+      <AdminSidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        unreadMessages={unreadMessages}
+        isOpen={isOpen}
+        onToggleRestaurant={toggleRestaurant}
+        onNavigate={(path) => router.push(path)}
+      />
 
-        {/* Tab buttons */}
-        <div style={{ display: 'flex', flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
-          {NAV.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => id === 'messages' ? router.push('/admin/messages') : setActiveTab(id)}
-              style={{
-                padding: '0 1.1rem', height: 54, background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap',
-                color: activeTab === id ? '#fff' : '#555',
-                borderBottom: activeTab === id ? '2px solid #E8192C' : '2px solid transparent',
-                position: 'relative',
-              }}
-            >
-              {label}
-              {id === 'messages' && unreadMessages > 0 && (
-                <span style={{ position: 'absolute', top: 10, right: 8, background: '#E8192C', color: '#fff', borderRadius: '50%', fontSize: '0.6rem', fontWeight: 800, minWidth: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {unreadMessages > 99 ? '99+' : unreadMessages}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+      {/* ── Main content (offset by collapsed sidebar width on desktop) ──────── */}
+      <div style={{ flex: 1, minWidth: 0, marginLeft: COLLAPSED_W, transition: 'margin-left 0.2s ease' }}>
 
-        {/* Right controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: '1rem', flexShrink: 0 }}>
-          <button
-            onClick={toggleRestaurant}
-            style={{ background: isOpen ? 'rgba(34,197,94,0.12)' : 'rgba(232,25,44,0.12)', border: `1px solid ${isOpen ? '#22C55E' : '#E8192C'}`, color: isOpen ? '#22C55E' : '#E8192C', padding: '0.3rem 0.875rem', borderRadius: 20, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}
-          >
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOpen ? '#22C55E' : '#E8192C', display: 'inline-block' }} />
-            {isOpen ? 'Open' : 'Closed'}
-          </button>
-          <button onClick={() => router.push('/kitchen')} style={{ background: '#161616', border: '1px solid #262626', color: '#F5C300', padding: '0.3rem 0.875rem', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-            Kitchen
-          </button>
-          <button onClick={() => router.push('/rider')} style={{ background: '#161616', border: '1px solid #262626', color: '#60a5fa', padding: '0.3rem 0.875rem', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-            🛵 Rider
-          </button>
-          <button onClick={() => router.push('/')} style={{ background: '#E8192C', border: 'none', color: '#fff', padding: '0.3rem 0.875rem', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-            ← App
-          </button>
+        {/* Mobile top bar — just shows current section title */}
+        <div style={{ background: '#000', borderBottom: '1px solid #1a1a1a', height: 54, display: 'flex', alignItems: 'center', paddingLeft: 60, paddingRight: '1rem', gap: 12 }} className="md:hidden">
+          <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1rem', letterSpacing: 2, color: '#E8192C' }}>
+            {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+          </span>
         </div>
-      </div>
 
       {/* ── Content ─────────────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '1.5rem 1.5rem' }}>
@@ -678,7 +637,7 @@ export default function AdminPage() {
                       ))}
                       <span style={{ fontSize: '0.78rem', color: '#A0A0A0', marginLeft: 6 }}>{r.rating}/5</span>
                     </div>
-                    {r.comment && <p style={{ fontSize: '0.8rem', color: '#A0A0A0', margin: 0, fontStyle: 'italic' }}>"{r.comment}"</p>}
+                    {r.comment && <p style={{ fontSize: '0.8rem', color: '#A0A0A0', margin: 0, fontStyle: 'italic' }}>&ldquo;{r.comment}&rdquo;</p>}
                   </div>
                 ))}
               </div>
@@ -720,6 +679,7 @@ export default function AdminPage() {
         )}
 
       </div>
+      </div>{/* end main content wrapper */}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
