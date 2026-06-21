@@ -30,8 +30,13 @@ export type Order = {
   customer: string;
   user_email?: string;
   payment_method?: string;
-  order_type?: string;
+  order_type?: string;          // 'pickup' | 'delivery'
   delivery_address?: string;
+  delivery_fee?: number;
+  customer_phone?: string;
+  delivery_lat?: number;
+  delivery_lng?: number;
+  distance_km?: number;
   order_notes?: string;
   user_name?: string;
 };
@@ -200,6 +205,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         customer: o.user_name,
         user_email: o.user_email,
         payment_method: o.payment_method,
+        order_type: o.order_type ?? 'pickup',
+        delivery_address: o.delivery_address ?? undefined,
+        delivery_fee: o.delivery_fee ?? undefined,
+        customer_phone: o.customer_phone ?? undefined,
+        order_notes: o.order_notes ?? undefined,
       }));
       set({ orders: mapped });
     } catch (err) {
@@ -213,14 +223,22 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (!sessionUser?.email) return;
     try {
       const { error } = await supabase.from('orders').insert({
-        user_name: order.customer,
-        user_email: order.user_email || sessionUser.email,
+        user_name:        order.customer,
+        user_email:       order.user_email || sessionUser.email,
         verification_code: order.code,
-        total_amount: order.total,
-        status: 'Confirmed',
-        items: order.items,
-        payment_method: order.payment_method || 'unknown',
-        created_at: new Date().toISOString(),
+        total_amount:     order.total,
+        status:           'Confirmed',
+        items:            order.items,
+        payment_method:   order.payment_method || 'unknown',
+        order_type:       order.order_type || 'pickup',
+        delivery_address: order.delivery_address || null,
+        delivery_fee:     order.delivery_fee     || null,
+        customer_phone:   order.customer_phone   || null,
+        delivery_lat:     order.delivery_lat     || null,
+        delivery_lng:     order.delivery_lng     || null,
+        distance_km:      order.distance_km      || null,
+        order_notes:      order.order_notes      || null,
+        created_at:       new Date().toISOString(),
       });
       if (error) logError('Insert order error:', error);
     } catch (err) {
