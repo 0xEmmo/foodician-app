@@ -4,13 +4,17 @@ import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { useAppStore } from '@/src/store/useAppStore';
 import MenuCard from '@/src/components/MenuCard';
+import FavoritesCarousel from '@/src/components/FavoritesCarousel';
+import PromoCodeInput from '@/src/components/PromoCodeInput';
 import { supabase } from '@/src/lib/supabase';
-import { printReceipt } from '@/src/lib/printReceipt';
+import { generateReceiptPDF } from '@/src/lib/receipts';
+import { applyReferralCode } from '@/src/lib/referrals';
+import type { PromoCode } from '@/src/lib/promos';
 
+interface PaystackHandler { openIframe: () => void; }
+interface PaystackPopStatic { setup: (cfg: Record<string, unknown>) => PaystackHandler; }
 declare global {
-  interface Window {
-    PaystackPop: any;
-  }
+  interface Window { PaystackPop: PaystackPopStatic; }
 }
 
 type Category = 'all' | 'pasta' | 'noodles' | 'protein' | 'sides';
@@ -20,18 +24,53 @@ type MenuItem = {
   name: string;
   desc: string;
   price: number;
-  emoji: string;
+  emoji?: string;
   image: string;
+  image_url?: string;
   mins: number;
-  cat: Category;
+  cat: Category | string;
+};
+
+const CAT_ICONS: Record<Category, React.ReactNode> = {
+  all: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11l7-7 7 7" /><path d="M5 9v10a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1V9" />
+    </svg>
+  ),
+  pasta: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+      <path d="M4 15c0 3.31 3.58 6 8 6s8-2.69 8-6H4z" />
+      <path d="M4 15c0-5.52 3.58-10 8-10s8 4.48 8 10" />
+      <path d="M12 5V3" /><path d="M9 6.5L8 4.5" /><path d="M15 6.5l1-2" />
+    </svg>
+  ),
+  noodles: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+      <path d="M4 13c0 3.31 3.58 6 8 6s8-2.69 8-6H4z" />
+      <path d="M7 9c.5-1.5 1.5-2 2.5-2s2 .5 2.5 2 1.5 2 2.5 2 2-.5 2.5-2" />
+      <path d="M4.5 6c.5-1.5 1.5-2 2.5-2s2 .5 2.5 2 1.5 2 2.5 2 2-.5 2.5-2 1.5-2 2.5-2" />
+    </svg>
+  ),
+  protein: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8.56 2.9A6 6 0 0121 8c0 2-.8 3.7-2 5l-1 1a6 6 0 01-8.5-8.5l1-1A6 6 0 018.56 2.9z" />
+      <path d="M3.5 20.5l5-5" />
+    </svg>
+  ),
+  sides: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="10" width="14" height="11" rx="2" />
+      <path d="M7.5 10V7.5M12 10V5M16.5 10V7.5" />
+    </svg>
+  ),
 };
 
 const CATEGORIES: { id: Category; label: string }[] = [
-  { id: 'all', label: '🍽 All' },
-  { id: 'pasta', label: '🍝 Spaghetti' },
-  { id: 'noodles', label: '🍜 Indomie' },
-  { id: 'protein', label: '🍗 Proteins' },
-  { id: 'sides', label: '🍟 Sides' },
+  { id: 'all',     label: 'All'       },
+  { id: 'pasta',   label: 'Spaghetti' },
+  { id: 'noodles', label: 'Indomie'   },
+  { id: 'protein', label: 'Proteins'  },
+  { id: 'sides',   label: 'Sides'     },
 ];
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=300&q=80';
@@ -47,109 +86,133 @@ function LoadingScreen() {
   );
 }
 
-// ─── Auth Gate (Email/Password) ──────────────────────────────────────────────
+// ─── Auth Gate ───────────────────────────────────────────────────────────────
 function AuthGate() {
   const signUp = useAppStore((s) => s.signUp);
   const signIn = useAppStore((s) => s.signIn);
-  const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [isLogin,      setIsLogin]      = useState(true);
+  const [fullName,     setFullName]     = useState('');
+  const [phone,        setPhone]        = useState('');
+  const [email,        setEmail]        = useState('');
+  const [password,     setPassword]     = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    let result;
     if (isLogin) {
-      result = await signIn(email, password);
+      const result = await signIn(email, password);
+      if (result.error) setError(result.error.message);
     } else {
-      if (!username.trim()) {
-        setError('Username is required');
-        setLoading(false);
-        return;
+      if (!fullName.trim()) { setError('Full name is required'); setLoading(false); return; }
+      if (phone && (phone.length !== 11 || !phone.startsWith('0'))) {
+        setError('Phone must be 11 digits starting with 0'); setLoading(false); return;
       }
-      result = await signUp(email, password, username);
-    }
-
-    if (result.error) {
-      setError(result.error.message);
+      const result = await signUp(email, password, fullName.trim());
+      if (result.error) { setError(result.error.message); setLoading(false); return; }
+      if (referralCode.trim()) {
+        const { data } = await supabase.auth.getUser();
+        if (data.user) await applyReferralCode(referralCode.trim().toUpperCase(), data.user.id);
+      }
     }
     setLoading(false);
   };
 
+  const field = "w-full bg-[rgba(255,255,255,0.05)] border border-[#262626] rounded-[12px] py-3.5 pr-4 text-white outline-none transition-all focus:border-[#E8192C] placeholder:text-[#555]";
+
   return (
     <div
-      className="min-h-full flex flex-col justify-end p-6"
-      style={{
-        background:
-          "linear-gradient(180deg, rgba(0,0,0,0.4) 0%, #050505 100%), url('https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=480&q=80') center/cover",
-      }}
+      className="min-h-full flex flex-col justify-end p-5"
+      style={{ background: "linear-gradient(180deg,rgba(0,0,0,0.55) 0%,#050505 100%),url('https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=480&q=80') center/cover" }}
     >
-      <div className="bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border border-[#262626] rounded-[24px] p-8 shadow-[0_20px_40px_rgba(0,0,0,0.8)]">
+      <div className="bg-[rgba(12,12,12,0.92)] backdrop-blur-[24px] border border-[#1f1f1f] rounded-[24px] p-7 shadow-[0_20px_60px_rgba(0,0,0,0.9)]">
         <Image
           src="https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=100&q=80"
-          alt="Logo"
-          width={70}
-          height={70}
-          className="rounded-full border-2 border-[#6B000A] mb-4 shadow-[0_0_20px_rgba(232,25,44,0.4)]"
+          alt="Logo" width={58} height={58}
+          className="rounded-full border-2 border-[#6B000A] mb-4 shadow-[0_0_20px_rgba(232,25,44,0.35)]"
         />
-        <div
-          style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.5rem', color: '#fff', lineHeight: 1 }}
-          className="mb-2"
-        >
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.25rem', color: '#fff', lineHeight: 1.05, marginBottom: 6 }}>
           Treats by<br />Foodician
         </div>
-        <p className="text-[0.9rem] text-[#A0A0A0] mb-6 leading-[1.5]">
-          {isLogin ? 'Sign in to your account' : 'Create a new account'}
+        <p className="text-[0.875rem] text-[#666] mb-6">
+          {isLogin ? 'Sign in to continue' : 'Create a new account'}
         </p>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 mb-6">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 mb-5" style={{ fontFamily: "'DM Sans', sans-serif" }}>
           {!isLogin && (
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username (how you'll be seen)"
-              className="bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white w-full outline-none focus:border-[#E8192C]"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            />
+            <>
+              {/* Full name */}
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                </span>
+                <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Full name" className={`${field} pl-11`} />
+              </div>
+              {/* Phone */}
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2A19.79 19.79 0 013.29 4.18 2 2 0 015.27 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11l-1.27 1.27a16 16 0 006.29 6.29l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+                </span>
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                  placeholder="08012345678" maxLength={11} className={`${field} pl-11`} />
+              </div>
+              <p className="text-[0.7rem] text-[#444] -mt-1 ml-1">11 digits, starts with 0</p>
+            </>
           )}
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email address"
-            className="bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white w-full outline-none focus:border-[#E8192C]"
-            style={{ fontFamily: "'DM Sans', sans-serif" }}
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white w-full outline-none focus:border-[#E8192C]"
-            style={{ fontFamily: "'DM Sans', sans-serif" }}
-          />
+
+          {/* Email */}
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8l10 6 10-6"/></svg>
+            </span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com" className={`${field} pl-11`} />
+          </div>
+
+          {/* Password */}
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            </span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 6 characters" className={`${field} pl-11`} />
+          </div>
+
+          {/* Referral code (signup only) */}
+          {!isLogin && (
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555]">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><path d="M12 22V7M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/></svg>
+              </span>
+              <input type="text" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="E.G. ABCD1234" maxLength={8}
+                className={`${field} pl-11 tracking-[3px]`} />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-[#E8192C] font-semibold">optional — get ₦2,000</span>
+            </div>
+          )}
+
           {error && <p className="text-[0.8rem] text-[#E8192C]">{error}</p>}
+
           <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 shadow-[0_4px_15px_rgba(232,25,44,0.3)] hover:bg-[#FF2E43] hover:-translate-y-px disabled:opacity-50"
+            type="submit" disabled={loading}
+            className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[12px] text-[1.2rem] tracking-[2px] transition-all hover:bg-[#FF2E43] disabled:opacity-50 mt-1"
             style={{ fontFamily: "'Bebas Neue', sans-serif" }}
           >
-            {loading ? 'PROCESSING...' : isLogin ? 'SIGN IN →' : 'SIGN UP →'}
+            {loading ? 'PROCESSING...' : isLogin ? 'SIGN IN →' : 'CREATE ACCOUNT →'}
           </button>
         </form>
 
         <button
-          onClick={() => setIsLogin(!isLogin)}
-          className="w-full text-center text-[#A0A0A0] text-[0.85rem] hover:text-white transition"
+          onClick={() => { setIsLogin(!isLogin); setError(''); }}
+          className="w-full text-center text-[#555] text-[0.85rem] hover:text-[#A0A0A0] transition"
         >
-          {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+          {isLogin ? "Don't have an account? " : 'Already have an account? '}
+          <span className="text-[#E8192C] font-semibold">{isLogin ? 'Sign up' : 'Sign in'}</span>
         </button>
       </div>
     </div>
@@ -183,14 +246,31 @@ function CartSheet({
   const [toast, setToast] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [promoDiscount, setPromoDiscount] = useState(0);
+  const [appliedPromo,  setAppliedPromo]  = useState<PromoCode | null>(null);
   const [orderSnapshot, setOrderSnapshot] = useState<{
     code: string;
     items: { name: string; quantity: number; price: number }[];
     total: number;
   } | null>(null);
 
+  // ─── DELIVERY STATE ───────────────────────────────────────────────────────
+  const [orderType, setOrderType] = useState<'pickup' | 'delivery'>('pickup');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryPhone, setDeliveryPhone] = useState('');
+  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState(0);
+  const [calculating, setCalculating] = useState(false);
+  const [deliveryData, setDeliveryData] = useState<{
+    address: string;
+    lat: number;
+    lng: number;
+    distance: number;
+  } | null>(null);
+
   const cartIds = Object.keys(cart).map(Number).filter((id) => cart[id] > 0);
-  const total = cartTotal();
+  const subtotal = cartTotal();
+  const total = (orderType === 'delivery' ? subtotal + deliveryFee : subtotal) - promoDiscount;
   const mins = cartMins();
 
   const showToast = (msg: string) => {
@@ -198,7 +278,7 @@ function CartSheet({
     setTimeout(() => setToast(''), 2400);
   };
 
-  // Check if restaurant is open
+  // ─── Check if restaurant is open ───────────────────────────────────────────
   const checkRestaurantOpen = async () => {
     try {
       const res = await fetch('/api/restaurant/status');
@@ -214,16 +294,72 @@ function CartSheet({
     }
   };
 
-  // WhatsApp notification
+  // ─── Calculate Delivery Fee ───────────────────────────────────────────────
+  const handleAddressChange = async (address: string) => {
+    setDeliveryAddress(address);
+
+    if (address.length < 5 || orderType === 'pickup') {
+      setDeliveryFee(0);
+      setEstimatedTime(0);
+      setDeliveryData(null);
+      return;
+    }
+
+    setCalculating(true);
+    try {
+      const response = await fetch('/api/checkout/calculate-delivery-fee', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliveryAddress: address,
+          prepTimeMinutes: mins ?? 15,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setDeliveryFee(data.deliveryFee);
+        setEstimatedTime(data.estimatedMinutes);
+        setDeliveryData({
+          address: data.deliveryAddress,
+          lat: data.deliveryLat,
+          lng: data.deliveryLng,
+          distance: data.distanceKm,
+        });
+      } else {
+        showToast(data.error || 'Could not calculate delivery fee');
+        setDeliveryFee(0);
+        setEstimatedTime(0);
+        setDeliveryData(null);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      showToast('Failed to calculate delivery fee');
+      setDeliveryFee(0);
+      setDeliveryData(null);
+    } finally {
+      setCalculating(false);
+    }
+  };
+
+  // ─── WhatsApp notification ─────────────────────────────────────────────────
   const sendWhatsAppNotification = (orderCode: string, itemsArray: string[], total: number) => {
-    const phoneNumber = '2347074099721'; // Replace with actual restaurant WhatsApp number
+    const phoneNumber = '2347074099721';
     const itemsText = itemsArray.join('\n• ');
-    const message = `🍽️ *NEW ORDER #${orderCode}* 🍽️\n\n*Customer:* ${sessionUser?.name}\n*Items:*\n• ${itemsText}\n\n*Total:* ₦${total.toLocaleString()}\n\n*Status:* Confirmed – prepare for pickup in ${mins} mins.`;
+    let message = `🍽️ *NEW ORDER #${orderCode}* 🍽️\n\n*Customer:* ${sessionUser?.name}\n*Items:*\n• ${itemsText}\n\n*Total:* ₦${total.toLocaleString()}\n`;
+    
+    if (orderType === 'delivery') {
+      message += `\n📍 *DELIVERY* to: ${deliveryData?.address}\n⏱️ ETA: ${estimatedTime} mins`;
+    } else {
+      message += `\n*Status:* Confirmed – prepare for pickup in ${mins} mins.`;
+    }
+    
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   };
 
-  // ─── Finalise order – only ONE insert via addOrder ─────────────────────────
+  // ─── Finalise order ───────────────────────────────────────────────────────
   const finaliseOrder = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -234,28 +370,39 @@ function CartSheet({
       return `${m.name} (x${cart[id]})`;
     });
 
-    // Build receipt snapshot before clearing cart
     const receiptItems = cartIds.map(id => {
       const m = menuItems.find(m => m.id === id)!;
       return { name: m.name, quantity: cart[id], price: m.price };
     });
     setOrderSnapshot({ code, items: receiptItems, total });
 
-    // ✅ Use addOrder – it will insert into Supabase and update local store
-    addOrder({
+    // Build order object with delivery info
+    const orderData: Record<string, unknown> = {
       code,
-      mins: mins ?? 15,
+      mins: orderType === 'delivery' ? estimatedTime : mins ?? 15,
       total,
       items: itemsArray,
       time: new Date().toLocaleTimeString(),
       status: 'Confirmed',
       customer: sessionUser?.name ?? 'Guest',
-      user_email: sessionUser?.email ?? '',      // for total_spent calculation
-      payment_method: payMethod,                 // for refunds
-    });
+      user_email: sessionUser?.email ?? '',
+      payment_method: payMethod,
+      order_type: orderType,
+    };
 
-    // Notifications (non‑blocking)
+    // Add delivery details if applicable
+    if (orderType === 'delivery' && deliveryData) {
+      orderData.delivery_address = deliveryData.address;
+      orderData.delivery_lat = deliveryData.lat;
+      orderData.delivery_lng = deliveryData.lng;
+      orderData.distance_km = deliveryData.distance;
+      orderData.delivery_fee = deliveryFee;
+      if (deliveryPhone.trim()) orderData.customer_phone = deliveryPhone.trim();
+    }
+
+    addOrder(orderData as Parameters<typeof addOrder>[0]);
     sendWhatsAppNotification(code, itemsArray, total);
+
     try {
       await fetch('/api/send-order-email', {
         method: 'POST',
@@ -266,24 +413,27 @@ function CartSheet({
           orderCode: code,
           total: total,
           items: itemsArray,
-          mins: mins ?? 15,
+          mins: orderType === 'delivery' ? estimatedTime : mins ?? 15,
+          orderType,
+          deliveryAddress: deliveryData?.address,
         }),
       });
     } catch (err) {
       console.error('Email send failed:', err);
     }
 
+    const prepMins = orderType === 'delivery' ? estimatedTime : mins ?? 15;
     setConfirmCode(code);
-    setConfirmMins(mins ?? 15);
+    setConfirmMins(prepMins);
+    setCountdown(prepMins * 60); // initialise before the effect runs
     clearCart();
     setShowPay(false);
     onClose();
     setShowConfirm(true);
-
     setIsSubmitting(false);
   };
 
-  // Paystack payment
+  // ─── Paystack payment ──────────────────────────────────────────────────────
   const initiatePaystack = () => {
     if (typeof window === 'undefined' || !window.PaystackPop) {
       showToast('Payment service not ready. Please refresh the page.');
@@ -305,7 +455,7 @@ function CartSheet({
       email: sessionUser.email,
       amount: Math.round(total * 100),
       currency: 'NGN',
-      ref: 'TBF-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+      ref: 'TBF-' + crypto.randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase(),
       callback: () => {
         showToast('Payment confirmed! Your order is being processed.');
         finaliseOrder();
@@ -317,29 +467,26 @@ function CartSheet({
     handler.openIframe();
   };
 
-  // Wallet payment (fixed – no double deduction)
+  // ─── Wallet payment ───────────────────────────────────────────────────────
   const payWithWallet = () => {
     if (!sessionUser) return;
     if (sessionUser.wallet < total) {
       showToast('Insufficient wallet balance.');
       return;
     }
-    addTransaction('debit', total, 'Paid for pickup order');
+    addTransaction('debit', total, `Paid for ${orderType} order`);
     finaliseOrder();
   };
 
-  // Countdown timer
+  // ─── Countdown timer ──────────────────────────────────────────────────────
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (showConfirm && confirmMins > 0) {
-      const endTime = Date.now() + confirmMins * 60 * 1000;
-      interval = setInterval(() => {
-        const remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
-        setCountdown(remaining);
-        if (remaining === 0) clearInterval(interval);
-      }, 1000);
-      setCountdown(confirmMins * 60);
-    }
+    if (!showConfirm || confirmMins <= 0) return;
+    const endTime = new Date().getTime() + confirmMins * 60 * 1000;
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.floor((endTime - new Date().getTime()) / 1000));
+      setCountdown(remaining);
+      if (remaining === 0) clearInterval(interval);
+    }, 1000);
     return () => clearInterval(interval);
   }, [showConfirm, confirmMins]);
 
@@ -347,12 +494,17 @@ function CartSheet({
 
   const handlePrintReceipt = () => {
     if (!orderSnapshot) return;
-    printReceipt({
-      code: orderSnapshot.code,
-      date: new Date().toISOString(),
-      customer: sessionUser?.name || 'Guest',
-      items: orderSnapshot.items,
-      total: orderSnapshot.total,
+    generateReceiptPDF({
+      orderId:       orderSnapshot.code,
+      customerName:  sessionUser?.name ?? 'Guest',
+      items:         orderSnapshot.items.map((i) => ({ name: i.name, qty: i.quantity, price: i.price, subtotal: i.price * i.quantity })),
+      subtotal:      orderSnapshot.total,
+      deliveryFee:   0,
+      discount:      0,
+      total:         orderSnapshot.total,
+      paymentMethod: 'paystack',
+      orderType:     'pickup',
+      createdAt:     new Date().toISOString(),
     });
   };
 
@@ -406,10 +558,10 @@ function CartSheet({
             <div className="mt-auto pt-5 border-t border-[#262626] flex-shrink-0">
               <div className="flex justify-between items-center pb-4">
                 <span className="text-[0.95rem] text-[#A0A0A0] font-medium">Subtotal</span>
-                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', letterSpacing: '0.5px' }}>₦{total.toLocaleString()}</span>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', letterSpacing: '0.5px' }}>₦{subtotal.toLocaleString()}</span>
               </div>
               <div className="bg-[rgba(232,25,44,0.06)] border border-[rgba(232,25,44,0.15)] rounded-[10px] p-3.5 mb-5 text-[0.85rem] text-[#F5F5F5] flex items-center gap-2">
-                ⏱️ Kitchen turnaround: <strong>Ready in approx. {mins} mins</strong>
+                ⏱️ Ready in: <strong>{orderType === 'delivery' ? estimatedTime : mins} mins</strong>
               </div>
               <button
                 onClick={async () => {
@@ -427,13 +579,13 @@ function CartSheet({
         </div>
       </div>
 
-      {/* Payment overlay (unchanged) */}
+      {/* Payment overlay */}
       <div
         className={`fixed inset-0 z-[300] transition-opacity duration-300 bg-black/60 backdrop-blur-[12px] flex items-end justify-center ${showPay ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setShowPay(false)}
       >
         <div
-          className={`bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] w-full max-w-[480px] rounded-t-[24px] p-5 pb-8 flex flex-col max-h-[85vh] transition-transform duration-400 ${showPay ? 'translate-y-0' : 'translate-y-full'}`}
+          className={`bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] w-full max-w-[480px] rounded-t-[24px] p-5 pb-8 flex flex-col max-h-[85vh] overflow-y-auto transition-transform duration-400 ${showPay ? 'translate-y-0' : 'translate-y-full'}`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="w-10 h-1 bg-[#262626] rounded-full mx-auto mb-5 flex-shrink-0" />
@@ -441,32 +593,145 @@ function CartSheet({
             Complete Checkout
           </div>
           <p className="text-[0.825rem] text-[#A0A0A0] mb-6 leading-[1.4]">Pay securely ahead of arrival. The kitchen accepts instantly.</p>
-          <div className="bg-[#161616] rounded-[12px] p-4 mb-6 flex justify-between items-center border border-[#262626]">
-            <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Amount Payable</span>
-            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#F5C300', letterSpacing: '1px' }}>₦{total.toLocaleString()}</span>
+
+          {/* ─── DELIVERY / PICKUP TOGGLE ─── */}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => {
+                setOrderType('pickup');
+                setDeliveryAddress('');
+                setDeliveryFee(0);
+                setEstimatedTime(0);
+                setDeliveryData(null);
+              }}
+              className={`flex-1 py-3 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all ${
+                orderType === 'pickup'
+                  ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C]'
+                  : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'
+              }`}
+              style={{ fontFamily: "'DM Sans', sans-serif" }}
+            >
+              🏪 Pickup
+            </button>
+            <button
+              onClick={() => setOrderType('delivery')}
+              className={`flex-1 py-3 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all ${
+                orderType === 'delivery'
+                  ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C]'
+                  : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'
+              }`}
+              style={{ fontFamily: "'DM Sans', sans-serif" }}
+            >
+              🛵 Delivery
+            </button>
           </div>
+
+          {/* ─── DELIVERY ADDRESS INPUT ─── */}
+          {orderType === 'delivery' && (
+            <div className="mb-6 pb-6 border-b border-[#262626]">
+              <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
+              <input
+                type="text"
+                value={deliveryAddress}
+                onChange={(e) => handleAddressChange(e.target.value)}
+                placeholder="e.g., Ikoyi, Lagos or Flat 12B, Victoria Island"
+                className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                style={{ fontFamily: "'DM Sans', sans-serif" }}
+              />
+              <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mt-4 mb-2">Contact Phone for Rider</label>
+              <input
+                type="tel"
+                value={deliveryPhone}
+                onChange={(e) => setDeliveryPhone(e.target.value)}
+                placeholder="08012345678"
+                maxLength={11}
+                className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                style={{ fontFamily: "'DM Sans', sans-serif" }}
+              />
+              {calculating && (
+                <p className="text-[0.75rem] text-[#F5C300] mt-2 font-semibold">🔄 Calculating delivery fee...</p>
+              )}
+              {deliveryData && deliveryFee > 0 && (
+                <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[#A0A0A0]">📍 Distance</span>
+                    <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
+                  </div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[#A0A0A0]">🚚 Delivery Fee</span>
+                    <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
+                    <span className="text-[#A0A0A0]">⏱️ Est. Time</span>
+                    <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Promo Code */}
+          {sessionUser && (
+            <div className="mb-4">
+              <PromoCodeInput
+                userId={sessionUser.id}
+                subtotal={subtotal}
+                onApplied={(discount, promo) => { setPromoDiscount(discount); setAppliedPromo(promo); }}
+                onRemoved={() => { setPromoDiscount(0); setAppliedPromo(null); }}
+              />
+            </div>
+          )}
+
+          {/* Amount Display */}
+          <div className="bg-[#161616] rounded-[12px] p-4 mb-6 flex flex-col gap-3 border border-[#262626]">
+            {orderType === 'delivery' && deliveryFee > 0 && (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Food</span>
+                  <span className="text-[0.9rem] text-white font-semibold">₦{subtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Delivery</span>
+                  <span className="text-[0.9rem] text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                </div>
+                <div className="border-t border-[#262626]" />
+              </>
+            )}
+            {promoDiscount > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-[0.75rem] text-[#22C55E] font-semibold">Promo Discount</span>
+                <span className="text-[0.9rem] text-[#22C55E] font-semibold">−₦{promoDiscount.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Total Payable</span>
+              <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#F5C300', letterSpacing: '1px' }}>₦{Math.max(0, total).toLocaleString()}</span>
+            </div>
+          </div>
+
+          {/* Payment Method Selection */}
           <div className="flex gap-3 mb-6 overflow-x-auto no-scrollbar">
             {(['wallet', 'paystack', 'transfer'] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setPayMethod(m)}
-                className={`flex-1 min-w-[110px] py-3.5 px-2 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all duration-200 text-center ${payMethod === m ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C] shadow-[0_0_15px_rgba(232,25,44,0.2),inset_0_0_8px_rgba(232,25,44,0.1)]' : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'}`}
+                className={`flex-1 min-w-[110px] py-3.5 px-2 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all duration-200 text-center ${payMethod === m ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C] shadow-[0_0_15px_rgba(232,25,44,0.2)]' : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'}`}
                 style={{ fontFamily: "'DM Sans', sans-serif" }}
               >
-                {m === 'wallet' ? '💰 Wallet Balance' : m === 'paystack' ? '💳 Card / Bank' : '🏦 Transfer'}
+                {m === 'wallet' ? '💰 Wallet' : m === 'paystack' ? '💳 Card' : '🏦 Transfer'}
               </button>
             ))}
           </div>
 
-          {/* Wallet payment */}
+          {/* Wallet Payment */}
           {payMethod === 'wallet' && (
             <div>
               <div className="bg-[#161616] rounded-[12px] p-4 mb-3 flex justify-between items-center border border-[#262626]">
                 <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Current Balance</span>
-                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#F5C300', letterSpacing: '1px' }}>₦{(sessionUser?.wallet ?? 0).toLocaleString()}</span>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', letterSpacing: '1px' }}>₦{(sessionUser?.wallet ?? 0).toLocaleString()}</span>
               </div>
               {sessionUser && sessionUser.wallet < total && (
-                <p className="text-[0.75rem] text-[#E8192C] text-center mb-3">Insufficient wallet balance. Top up or select another method.</p>
+                <p className="text-[0.75rem] text-[#E8192C] text-center mb-3 font-semibold">Insufficient wallet balance. Top up or select another method.</p>
               )}
               <button
                 onClick={payWithWallet}
@@ -496,7 +761,7 @@ function CartSheet({
             </div>
           )}
 
-          {/* Bank transfer */}
+          {/* Bank Transfer */}
           {payMethod === 'transfer' && (
             <div>
               <div className="bg-[#161616] p-4 rounded-[10px] mb-4 text-[0.9rem] text-center">
@@ -509,7 +774,7 @@ function CartSheet({
               </div>
               <button
                 onClick={() => {
-                  if (confirm("Have you made the exact transfer? The restaurant will verify before cooking. Click OK only if you have paid.")) {
+                  if (confirm('Have you made the exact transfer? The restaurant will verify before cooking. Click OK only if you have paid.')) {
                     finaliseOrder();
                   }
                 }}
@@ -524,14 +789,22 @@ function CartSheet({
         </div>
       </div>
 
-      {/* Order Confirmed overlay */}
+      {/* Order Confirmed Overlay */}
       <div className={`fixed inset-0 z-[700] flex items-center justify-center p-6 bg-black/85 backdrop-blur-[15px] transition-opacity duration-300 ${showConfirm ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className="bg-[#0F0F0F] border border-[rgba(232,25,44,0.15)] rounded-[24px] p-9 max-w-[340px] w-full text-center shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
           <div className="text-[3rem] mb-4">🎉</div>
-          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.2rem', letterSpacing: '1px', color: '#fff' }} className="mb-2">Order Received!</div>
-          <p className="text-[0.85rem] text-[#A0A0A0] mb-5 leading-[1.5]">Foodician kitchen staff have been alerted to package your meal boxes.</p>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.2rem', letterSpacing: '1px', color: '#fff' }} className="mb-2">
+            {orderType === 'delivery' ? 'Delivery Confirmed!' : 'Order Received!'}
+          </div>
+          <p className="text-[0.85rem] text-[#A0A0A0] mb-5 leading-[1.5]">
+            {orderType === 'delivery'
+              ? 'Foodician is preparing your meal. Driver will be assigned shortly.'
+              : 'Foodician kitchen staff have been alerted to package your meal boxes.'}
+          </p>
           <div className="bg-[rgba(232,25,44,0.05)] border border-[rgba(232,25,44,0.15)] rounded-[14px] p-4 mb-4">
-            <div className="text-[0.65rem] text-[#A0A0A0] tracking-[1.5px] uppercase mb-1 font-bold">Pick up fresh in</div>
+            <div className="text-[0.65rem] text-[#A0A0A0] tracking-[1.5px] uppercase mb-1 font-bold">
+              {orderType === 'delivery' ? 'Est. Delivery' : 'Ready in'}
+            </div>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.6rem', color: '#E8192C', letterSpacing: '1px', lineHeight: 1 }}>
               {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}
               <small style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '1rem', color: '#fff', fontWeight: 500 }}> remaining</small>
@@ -553,7 +826,7 @@ function CartSheet({
             className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 shadow-[0_4px_15px_rgba(232,25,44,0.3)] hover:bg-[#FF2E43]"
             style={{ fontFamily: "'Bebas Neue', sans-serif" }}
           >
-            GOT IT — I AM ON MY WAY 🚀
+            {orderType === 'delivery' ? 'TRACK MY DELIVERY 🗺️' : 'GOT IT — ON MY WAY 🚀'}
           </button>
         </div>
       </div>
@@ -581,12 +854,10 @@ export default function HomePage() {
   const [cartOpen, setCartOpen] = useState(false);
   const bagRef = useRef<HTMLButtonElement>(null);
 
-  // Initialize auth listener once
   useEffect(() => {
     initAuthListener();
   }, [initAuthListener]);
 
-  // Fetch menu items from Supabase
   useEffect(() => {
     async function fetchMenu() {
       const { data, error } = await supabase
@@ -597,10 +868,15 @@ export default function HomePage() {
       if (error) {
         console.error('Failed to fetch menu:', error.message);
       } else {
-        const transformed = (data ?? []).map((item: any) => ({
-          ...item,
-          cat: item.category,
-          image: item.image_url || item.image || FALLBACK_IMAGE,
+        const transformed = (data ?? []).map((item: Record<string, unknown>) => ({
+          id:        Number(item.id),
+          name:      String(item.name ?? ''),
+          desc:      String(item.description ?? ''),
+          price:     Number(item.price ?? 0),
+          image:     String(item.image_url || item.image || FALLBACK_IMAGE),
+          image_url: item.image_url ? String(item.image_url) : undefined,
+          mins:      Number(item.prep_time ?? 15),
+          cat:       String(item.category ?? ''),
         }));
         setMenuItems(transformed);
       }
@@ -609,7 +885,6 @@ export default function HomePage() {
     fetchMenu();
   }, []);
 
-  // Animate bag on cart change
   useEffect(() => {
     if (bagRef.current) {
       bagRef.current.classList.remove('animate-bop');
@@ -627,8 +902,8 @@ export default function HomePage() {
   }
 
   return (
-    <>
-      {/* Topbar, Hero, Pickup strip, Category filter, Section label, Menu grid – unchanged */}
+    <div className="max-w-screen-2xl mx-auto">
+      {/* Topbar */}
       <div className="bg-black border-b border-[rgba(232,25,44,0.15)] px-4 py-3.5 flex items-center justify-between flex-shrink-0 sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#6B000A] shadow-[0_0_12px_rgba(245,195,0,0.25)] flex items-center justify-center bg-black flex-shrink-0">
@@ -648,7 +923,7 @@ export default function HomePage() {
               Treats by Foodician
             </span>
             <span className="text-[0.6rem] tracking-[2px] text-[#F5C300] uppercase font-bold mt-0.5">
-              · Pickup Only ·
+              · Pickup & Delivery ·
             </span>
           </div>
         </div>
@@ -668,6 +943,7 @@ export default function HomePage() {
         </button>
       </div>
 
+      {/* Hero Section */}
       <div
         className="mx-4 mt-4 rounded-[14px] overflow-hidden border border-[rgba(232,25,44,0.3)] p-6 relative min-h-[140px] flex flex-col justify-center shadow-[0_10px_25px_rgba(0,0,0,0.5)]"
         style={{ background: 'linear-gradient(135deg, #000000 0%, #1a0204 50%, #6B000A 100%)' }}
@@ -683,22 +959,23 @@ export default function HomePage() {
           style={{ background: "url('https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=400&q=80') center/cover no-repeat", clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0% 100%)' }}
         />
         <div className="text-[0.65rem] tracking-[3px] uppercase text-[#F5C300] font-bold mb-1.5 flex items-center gap-1 relative z-[2]">
-          🌶️ Pay ahead — walk in — pick up
+          🌶️ Pay ahead — pick up or delivered
         </div>
         <div
           className="relative z-[2]"
           style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.4rem', letterSpacing: '1px', lineHeight: '0.95', color: '#fff', textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}
         >
-          ORDER. PAY. PICKUP.
+          ORDER. PAY. ENJOY.
         </div>
         <div className="text-[0.8rem] text-[#A0A0A0] mt-1.5 max-w-[60%] font-normal relative z-[2]">
-          Your hot local delicacies waiting when you arrive.
+          Your hot local delicacies waiting when you arrive — or delivered to your door.
         </div>
       </div>
 
+      {/* Pickup Time Strip */}
       <div className="mx-4 mt-4 mb-4 bg-[#0F0F0F] border border-[#262626] border-l-4 border-l-[#E8192C] rounded-[10px] px-4 py-3.5 flex items-center justify-between shadow-[0_4px_12px_rgba(0,0,0,0.3)]">
         <div>
-          <div className="text-[0.6rem] text-[#A0A0A0] tracking-[1.5px] uppercase mb-0.5 font-bold">⏱ Estimated pickup time</div>
+          <div className="text-[0.6rem] text-[#A0A0A0] tracking-[1.5px] uppercase mb-0.5 font-bold">⏱ Ready time</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#E8192C', letterSpacing: '1px', lineHeight: 1 }}>
             {mins ? (
               <>
@@ -718,25 +995,35 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="overflow-x-auto no-scrollbar px-4 pb-4">
-        <div className="flex gap-2.5 w-max">
-          {CATEGORIES.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setActiveCat(id)}
-              className={`px-4 py-2 rounded-lg border text-[0.8rem] font-semibold cursor-pointer transition-all duration-200 whitespace-nowrap ${
-                activeCat === id
-                  ? 'bg-[#E8192C] text-white border-[#E8192C] shadow-[0_0_16px_rgba(232,25,44,0.4)] -translate-y-px'
-                  : 'bg-[#0F0F0F] text-[#A0A0A0] border-[#262626]'
-              }`}
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            >
-              {label}
-            </button>
-          ))}
+      {/* Category Filter */}
+      <div className="overflow-x-auto no-scrollbar border-b border-[#1a1a1a]">
+        <div className="flex w-max px-2">
+          {CATEGORIES.map(({ id, label }) => {
+            const active = activeCat === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveCat(id)}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                  padding: '0.625rem 1.1rem',
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  color: active ? '#E8192C' : '#555',
+                  borderBottom: active ? '2px solid #E8192C' : '2px solid transparent',
+                  transition: 'color 0.18s, border-color 0.18s',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap',
+                }}
+              >
+                {CAT_ICONS[id]}
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
+      {/* Menu Section Label */}
       <div
         className="px-4 mb-3 flex items-center gap-2"
         style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.1rem', letterSpacing: '2px', color: '#F5C300' }}
@@ -745,17 +1032,23 @@ export default function HomePage() {
         <div className="flex-1 h-px bg-[#262626]" />
       </div>
 
-      <div className="px-4 flex flex-col gap-4 mb-8">
+      {/* Favourites Carousel */}
+      <FavoritesCarousel />
+
+      {/* Menu Grid */}
+      <div className="px-4 pb-8">
         {loading ? (
           <LoadingScreen />
         ) : filteredMenu.length === 0 ? (
           <p className="text-center text-[#A0A0A0] text-[0.9rem] py-12">No items in this category.</p>
         ) : (
-          filteredMenu.map((item) => <MenuCard key={item.id} item={item} />)
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredMenu.map((item) => <MenuCard key={item.id} item={item} />)}
+          </div>
         )}
       </div>
 
       <CartSheet open={cartOpen} onClose={() => setCartOpen(false)} menuItems={menuItems} />
-    </>
+    </div>
   );
 }

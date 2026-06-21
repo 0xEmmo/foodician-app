@@ -26,7 +26,7 @@ export default function MenuCard({ item }: MenuCardProps) {
         {/* Image */}
         <div className="w-[105px] min-h-[105px] flex-shrink-0 relative bg-[#161616] overflow-hidden">
 <Image
-  src={item.image_url || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=300&q=80"}
+  src={item.image_url ? decodeURIComponent(item.image_url) : "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=300&q=80"}
   alt={item.name || "Menu item"}
   fill
   className="object-cover"

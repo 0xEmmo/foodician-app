@@ -1,0 +1,33 @@
+{
+  "name": "Treats by Foodician",
+  "short_name": "Foodician",
+  "description": "Order ahead, pay securely, and pick up your hot local delicacies.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#E8192C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["food", "lifestyle"],
+  "shortcuts": [
+    {
+      "name": "My Orders",
+      "short_name": "Orders",
+      "url": "/orders",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

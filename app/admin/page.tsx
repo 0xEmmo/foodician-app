@@ -4,1126 +4,723 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  BarChart, Bar, ResponsiveContainer
+  BarChart, Bar, ResponsiveContainer,
 } from 'recharts';
+import { supabase } from '@/src/lib/supabase';
+import { getAdminUnreadTotal } from '@/src/lib/chat';
+import type { PromoCode } from '@/src/lib/promos';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type ShopHour = { id: string; day_of_week: number; open_time: string; close_time: string; is_closed: boolean };
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 type Order = {
-  id: number;
-  user_name: string;
-  verification_code: string;
-  total_amount: number;
-  status: 'Confirmed' | 'Ready' | 'Cancelled' | 'Completed';
-  items: string[];
-  created_at: string;
-  payment_method?: string;  // added for refunds
+  id: number; user_name: string; verification_code: string;
+  total_amount: number; status: 'Confirmed' | 'Ready' | 'Cancelled' | 'Completed';
+  items: string[]; created_at: string; payment_method?: string;
 };
 
-type MenuItem = {
-  id: number;
-  name: string;
-  desc: string;
-  price: number;
-  category: string;
-  image_url: string;
-  mins: number;
-};
+type MenuItem = { id: number; name: string; desc: string; price: number; category: string; image_url: string; mins: number };
+type User     = { id: string; email: string; name: string; wallet: number; total_spent: number; role: string; created_at: string };
+type Analytics = { todayOrders: number; todayRevenue: number; popularItems: { name: string; count: number }[] };
+type SalesData = { date: string; revenue: number }[];
+type WeeklySalesData = { week: string; revenue: number }[];
+type Rating   = { id: string; order_id: string; item_name: string; rating: number; comment: string | null; user_id: string; created_at: string };
 
-// ✅ Updated User type with total_spent
-type User = {
-  id: string;
-  email: string;
-  name: string;
-  wallet: number;
-  total_spent: number;      // new field
-  created_at: string;
-};
+type Tab = 'orders' | 'analytics' | 'products' | 'marketing' | 'messages' | 'customers' | 'reviews' | 'settings';
 
-type Analytics = {
-  todayOrders: number;
-  todayRevenue: number;
-  popularItems: { name: string; count: number }[];
-};
+const NAV: { id: Tab; label: string }[] = [
+  { id: 'orders',    label: 'Orders'    },
+  { id: 'analytics', label: 'Analytics' },
+  { id: 'products',  label: 'Products'  },
+  { id: 'marketing', label: 'Marketing' },
+  { id: 'messages',  label: 'Messages'  },
+  { id: 'customers', label: 'Customers' },
+  { id: 'reviews',   label: 'Reviews'   },
+  { id: 'settings',  label: 'Settings'  },
+];
 
-type SalesData = {
-  date: string;
-  revenue: number;
-}[];
+const inputStyle = { background: '#0F0F0F', border: '1px solid #262626', borderRadius: 8, padding: '0.75rem', color: '#fff', width: '100%', outline: 'none' };
 
-type WeeklySalesData = {
-  week: string;
-  revenue: number;
-}[];
+function timeAgo(date: string) {
+  const diff = Date.now() - new Date(date).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
-const inputStyle = {
-  background: '#161616',
-  border: '1px solid #262626',
-  borderRadius: 8,
-  padding: '0.75rem',
-  color: '#fff',
-  width: '100%',
-  outline: 'none',
-};
-
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'orders' | 'analytics' | 'menu' | 'customers'>('orders');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [updatingId, setUpdatingId] = useState<number | null>(null);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [activeTab,   setActiveTab]   = useState<Tab>('orders');
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
+  const [orders,      setOrders]      = useState<Order[]>([]);
+  const [updatingId,  setUpdatingId]  = useState<number | null>(null);
+  const [menuItems,   setMenuItems]   = useState<MenuItem[]>([]);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
-  const [menuForm, setMenuForm] = useState({
-    name: '',
-    desc: '',
-    price: 0,
-    category: 'pasta',
-    image_url: '',
-    mins: 10,
-  });
-  const [users, setUsers] = useState<User[]>([]);
-  const [analytics, setAnalytics] = useState<Analytics>({
-    todayOrders: 0,
-    todayRevenue: 0,
-    popularItems: [],
-  });
-  const [dailySales, setDailySales] = useState<SalesData>([]);
+  const [menuForm,    setMenuForm]    = useState({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 });
+  const [users,       setUsers]       = useState<User[]>([]);
+  const [analytics,   setAnalytics]   = useState<Analytics>({ todayOrders: 0, todayRevenue: 0, popularItems: [] });
+  const [dailySales,  setDailySales]  = useState<SalesData>([]);
   const [weeklySales, setWeeklySales] = useState<WeeklySalesData>([]);
-  const [salesView, setSalesView] = useState<'daily' | 'weekly'>('daily');
-  const [isOpen, setIsOpen] = useState(true); // restaurant status
+  const [salesView,   setSalesView]   = useState<'daily' | 'weekly'>('daily');
+  const [isOpen,      setIsOpen]      = useState(true);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [shopHours,   setShopHours]   = useState<ShopHour[]>([]);
+  const [savingHours, setSavingHours] = useState(false);
+  const [promos,      setPromos]      = useState<PromoCode[]>([]);
+  const [reviews,     setReviews]     = useState<Rating[]>([]);
+  const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [promoForm,   setPromoForm]   = useState({ code: '', discount_type: 'fixed' as 'fixed' | 'percentage', discount_value: 0, min_order_amount: '', max_uses: '', expiry_date: '', description: '' });
+  const [savingPromo, setSavingPromo] = useState(false);
+  const [syncingImages, setSyncingImages] = useState(false);
 
-  // ─── Fetch restaurant status ──────────────────────────────────────────────
+  // ─── Fetch functions ───────────────────────────────────────────────────────
   const fetchRestaurantStatus = useCallback(async () => {
-    try {
-      const res = await fetch('/api/restaurant/status');
-      const data = await res.json();
-      setIsOpen(data.is_open);
-    } catch (err) {
-      console.error('Failed to fetch restaurant status', err);
-    }
+    try { const res = await fetch('/api/restaurant/status'); const d = await res.json(); setIsOpen(d.is_open); } catch {}
   }, []);
 
-  const toggleRestaurant = async () => {
-    const newStatus = !isOpen;
-    try {
-      const res = await fetch('/api/restaurant/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_open: newStatus }),
-      });
-      if (res.ok) {
-        setIsOpen(newStatus);
-        alert(`Restaurant is now ${newStatus ? 'OPEN' : 'CLOSED'}`);
-      } else {
-        alert('Failed to update status');
-      }
-    } catch (err) {
-      console.error('Toggle error', err);
-    }
-  };
+  const fetchShopHours = useCallback(async () => {
+    const { data } = await supabase.from('shop_hours').select('*').order('day_of_week');
+    if (data) setShopHours(data as ShopHour[]);
+  }, []);
 
-  // ─── Compute sales data from orders ─────────────────────────────────────────
-  const computeSalesData = useCallback((ordersList: Order[]) => {
-    // Daily (last 7 days)
-    const last7Days = [...Array(7)].map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      return { date: dateStr, revenue: 0 };
+  const fetchUnread = useCallback(async () => {
+    const n = await getAdminUnreadTotal(); setUnreadMessages(n);
+  }, []);
+
+  const fetchPromos = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('promo_codes').select('*').order('created_at', { ascending: false });
+      if (data) setPromos(data as PromoCode[]);
+    } catch {}
+  }, []);
+
+  const fetchReviews = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('ratings').select('*').order('created_at', { ascending: false }).limit(50);
+      if (data) setReviews(data as Rating[]);
+    } catch {}
+  }, []);
+
+  const computeSalesData = useCallback((list: Order[]) => {
+    const last7 = [...Array(7)].map((_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      return { date: d.toISOString().split('T')[0], revenue: 0 };
     }).reverse();
-
-    const dailyMap: Record<string, number> = {};
-    ordersList.forEach(order => {
-      const date = new Date(order.created_at).toISOString().split('T')[0];
-      dailyMap[date] = (dailyMap[date] || 0) + order.total_amount;
+    const dm: Record<string, number> = {};
+    list.forEach(o => { const k = new Date(o.created_at).toISOString().split('T')[0]; dm[k] = (dm[k] || 0) + o.total_amount; });
+    setDailySales(last7.map(d => ({ date: d.date, revenue: dm[d.date] || 0 })));
+    const wm: Record<string, number> = {};
+    list.forEach(o => {
+      const dt = new Date(o.created_at);
+      const k = `${dt.getFullYear()}-W${Math.ceil((dt.getDate() + 6 - dt.getDay()) / 7)}`;
+      wm[k] = (wm[k] || 0) + o.total_amount;
     });
-    const daily = last7Days.map(day => ({
-      date: day.date,
-      revenue: dailyMap[day.date] || 0,
-    }));
-    setDailySales(daily);
-
-    // Weekly (last 6 weeks)
-    const weeklyMap: Record<string, number> = {};
-    ordersList.forEach(order => {
-      const date = new Date(order.created_at);
-      const year = date.getFullYear();
-      const weekNum = Math.ceil((date.getDate() + 6 - date.getDay()) / 7);
-      const weekKey = `${year}-W${weekNum}`;
-      weeklyMap[weekKey] = (weeklyMap[weekKey] || 0) + order.total_amount;
-    });
-    const weekly = Object.entries(weeklyMap)
-      .map(([week, revenue]) => ({ week, revenue }))
-      .sort((a, b) => a.week.localeCompare(b.week))
-      .slice(-6);
-    setWeeklySales(weekly);
+    setWeeklySales(Object.entries(wm).map(([week, revenue]) => ({ week, revenue })).sort((a, b) => a.week.localeCompare(b.week)).slice(-6));
   }, []);
 
-  // ─── Fetch functions ──────────────────────────────────────────────────────
   const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/orders');
-      if (!res.ok) {
-        console.error('Orders fetch failed:', res.status);
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
-      const ordersArr = Array.isArray(data) ? data : [];
-      setOrders(ordersArr);
-      computeSalesData(ordersArr);
-
-      // Compute basic analytics
+      const list: Order[] = Array.isArray(data) ? data : [];
+      setOrders(list);
+      computeSalesData(list);
       const now = new Date();
-      const todayList = ordersArr.filter((o: Order) => {
-        const orderDate = new Date(o.created_at);
-        return (
-          orderDate.getFullYear() === now.getFullYear() &&
-          orderDate.getMonth() === now.getMonth() &&
-          orderDate.getDate() === now.getDate()
-        );
-      });
-
-      const itemCount: Record<string, number> = {};
-      ordersArr.forEach((order: Order) => {
-        (order.items ?? []).forEach((item: string) => {
-          const base = item.replace(/\s*\(x\d+\)/, '').trim();
-          itemCount[base] = (itemCount[base] || 0) + 1;
-        });
-      });
-
-      setAnalytics({
-        todayOrders: todayList.length,
-        todayRevenue: todayList.reduce((s: number, o: Order) => s + o.total_amount, 0),
-        popularItems: Object.entries(itemCount)
-          .map(([name, count]) => ({ name, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 5),
-      });
-    } catch (err) {
-      console.error('fetchOrders error:', err);
-    }
+      const today = list.filter(o => { const d = new Date(o.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate(); });
+      const ic: Record<string, number> = {};
+      list.forEach(o => (o.items ?? []).forEach(item => { const b = item.replace(/\s*\(x\d+\)/, '').trim(); ic[b] = (ic[b] || 0) + 1; }));
+      setAnalytics({ todayOrders: today.length, todayRevenue: today.reduce((s, o) => s + o.total_amount, 0), popularItems: Object.entries(ic).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 5) });
+    } catch {}
   }, [computeSalesData]);
 
-  const fetchMenu = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/menu');
-      if (!res.ok) return;
-      const data = await res.json();
-      setMenuItems(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('fetchMenu error:', err);
-    }
-  }, []);
+  const fetchMenu  = useCallback(async () => { try { const res = await fetch('/api/admin/menu');  if (!res.ok) return; const d = await res.json(); setMenuItems(Array.isArray(d) ? d : []); } catch {} }, []);
+  const fetchUsers = useCallback(async () => { try { const res = await fetch('/api/admin/users'); if (!res.ok) return; const d = await res.json(); setUsers(Array.isArray(d) ? d : []); } catch {} }, []);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/users');
-      if (!res.ok) return;
-      const data = await res.json();
-      setUsers(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('fetchUsers error:', err);
-    }
-  }, []);
-
-  // ─── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      try {
-        await Promise.all([fetchOrders(), fetchMenu(), fetchUsers(), fetchRestaurantStatus()]);
-      } catch (err) {
-        setError('Failed to load dashboard data.');
-      } finally {
-        setLoading(false);
-      }
+      await Promise.all([
+        fetchOrders(), fetchMenu(), fetchUsers(),
+        fetchRestaurantStatus(), fetchShopHours(), fetchUnread(), fetchPromos(), fetchReviews(),
+      ]);
     };
-    init();
-  }, [fetchOrders, fetchMenu, fetchUsers, fetchRestaurantStatus]);
+    init()
+      .then(() => setLoading(false))
+      .catch(() => setError('Failed to load dashboard.'));
+  }, [fetchOrders, fetchMenu, fetchUsers, fetchRestaurantStatus, fetchShopHours, fetchUnread, fetchPromos, fetchReviews]);
 
-  // ─── Auto-refresh orders every 15 seconds ─────────────────────────────────
-  useEffect(() => {
-    const interval = setInterval(fetchOrders, 15000);
-    return () => clearInterval(interval);
-  }, [fetchOrders]);
+  useEffect(() => { const i = setInterval(fetchOrders, 15000); return () => clearInterval(i); }, [fetchOrders]);
 
-  // ─── Order actions with refund for wallet payments ─────────────────────────
+  // ─── Actions ───────────────────────────────────────────────────────────────
+  const toggleRestaurant = async () => {
+    const next = !isOpen;
+    const res = await fetch('/api/restaurant/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_open: next }) });
+    if (res.ok) setIsOpen(next);
+  };
+
   const updateOrderStatus = async (id: number, status: Order['status']) => {
     setUpdatingId(id);
     try {
-      // 1. Update order status
-      const res = await fetch('/api/admin/orders', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status }),
-      });
-      if (!res.ok) throw new Error('Update failed');
-
-      // 2. If cancelling a wallet‑paid order, trigger refund
+      const res = await fetch('/api/admin/orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) });
+      if (!res.ok) throw new Error();
       if (status === 'Cancelled') {
         const order = orders.find(o => o.id === id);
         if (order?.payment_method === 'wallet') {
-          const refundRes = await fetch('/api/admin/refund', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId: id }),
-          });
-          if (refundRes.ok) {
-            alert('Order cancelled and wallet refunded.');
-          } else {
-            const err = await refundRes.json();
-            alert(`Refund failed: ${err.error || 'Unknown error'}`);
-          }
-        } else {
-          alert('Order cancelled. No refund needed (non‑wallet payment).');
+          const r = await fetch('/api/admin/refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: id }) });
+          if (!r.ok) alert('Refund failed');
         }
       }
-
-      // Optimistic update
-      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
-    } catch (err) {
-      console.error('updateOrderStatus error:', err);
-      alert('Update failed');
-    } finally {
-      setUpdatingId(null);
-    }
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+    } catch { alert('Update failed'); }
+    finally { setUpdatingId(null); }
   };
 
-  // ─── Menu actions (unchanged) ──────────────────────────────────────────────
   const saveMenuItem = async () => {
     const method = editingItem ? 'PUT' : 'POST';
     const body = editingItem ? { id: editingItem.id, ...menuForm } : menuForm;
-    const res = await fetch('/api/admin/menu', {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      fetchMenu();
-      setEditingItem(null);
-      setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 });
-    } else {
-      alert('Save failed');
-    }
+    const res = await fetch('/api/admin/menu', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.ok) { fetchMenu(); setEditingItem(null); setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 }); }
   };
 
   const deleteMenuItem = async (id: number) => {
-    if (confirm('Delete this item?')) {
-      const res = await fetch('/api/admin/menu', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (res.ok) fetchMenu();
-    }
+    if (!confirm('Delete this item?')) return;
+    const res = await fetch('/api/admin/menu', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    if (res.ok) fetchMenu();
   };
 
-  const editItem = (item: MenuItem) => {
-    setEditingItem(item);
-    setMenuForm({
-      name: item.name,
-      desc: item.desc,
-      price: item.price,
-      category: item.category,
-      image_url: item.image_url,
-      mins: item.mins,
+  const editItem = (item: MenuItem) => { setEditingItem(item); setMenuForm({ name: item.name, desc: item.desc, price: item.price, category: item.category, image_url: item.image_url, mins: item.mins }); };
+
+  const saveHourRow = async (row: ShopHour) => {
+    setSavingHours(true);
+    await supabase.from('shop_hours').update({ open_time: row.open_time, close_time: row.close_time, is_closed: row.is_closed }).eq('id', row.id);
+    setSavingHours(false);
+  };
+  const updateHourRow = (id: string, patch: Partial<ShopHour>) => setShopHours(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+
+  const seedShopHours = async () => {
+    const rows = [0,1,2,3,4,5,6].map(day_of_week => ({ day_of_week, open_time: '09:00', close_time: '21:00', is_closed: false }));
+    const { error: e } = await supabase.from('shop_hours').insert(rows);
+    if (e) { alert(e.message.includes('does not exist') ? 'Run the SQL migration in Supabase first.' : e.message); }
+    else fetchShopHours();
+  };
+
+  const createPromo = async () => {
+    if (!promoForm.code) return;
+    setSavingPromo(true);
+    const { error: e } = await supabase.from('promo_codes').insert({
+      code: promoForm.code.toUpperCase().trim(),
+      discount_type: promoForm.discount_type,
+      discount_value: promoForm.discount_value,
+      min_order_amount: promoForm.min_order_amount ? parseFloat(promoForm.min_order_amount) : null,
+      max_uses: promoForm.max_uses ? parseInt(promoForm.max_uses) : null,
+      expiry_date: promoForm.expiry_date || null,
+      description: promoForm.description || null,
+      is_active: true,
+      current_uses: 0,
     });
+    setSavingPromo(false);
+    if (e) { alert(e.message); return; }
+    setPromoForm({ code: '', discount_type: 'fixed', discount_value: 0, min_order_amount: '', max_uses: '', expiry_date: '', description: '' });
+    fetchPromos();
   };
 
-  // ─── Loading / Error states ────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#050505',
-          gap: 16,
-        }}
-      >
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            border: '2px solid #262626',
-            borderTopColor: '#E8192C',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-          }}
-        />
-        <p style={{ color: '#A0A0A0', fontSize: '0.85rem', letterSpacing: 2 }}>LOADING KITCHEN...</p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
-  }
+  const togglePromo = async (id: string, current: boolean) => {
+    await supabase.from('promo_codes').update({ is_active: !current }).eq('id', id);
+    setPromos(prev => prev.map(p => p.id === id ? { ...p, is_active: !current } : p));
+  };
 
-  if (error) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#050505',
-          gap: 16,
-          padding: '2rem',
-        }}
-      >
-        <p style={{ color: '#E8192C', fontSize: '1rem', textAlign: 'center' }}>⚠️ {error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          style={{
-            background: '#E8192C',
-            color: '#fff',
-            border: 'none',
-            padding: '0.75rem 2rem',
-            borderRadius: 8,
-            cursor: 'pointer',
-            fontWeight: 600,
-          }}
-        >
-          Retry
-        </button>
-        <button
-          onClick={() => router.push('/')}
-          style={{
-            background: 'transparent',
-            color: '#A0A0A0',
-            border: '1px solid #262626',
-            padding: '0.75rem 2rem',
-            borderRadius: 8,
-            cursor: 'pointer',
-          }}
-        >
-          ← Back to App
-        </button>
-      </div>
-    );
-  }
+  const changeUserRole = async (user: User, newRole: string) => {
+    if (newRole === user.role) return;
+    if (!confirm(`Change ${user.name || user.email} to "${newRole}"?`)) return;
+    const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: user.id, role: newRole }) });
+    if (!res.ok) { alert('Failed to update role'); return; }
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
+  };
 
-  // ─── Dashboard UI ──────────────────────────────────────────────────────────
+  // ─── Loading / Error ───────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050505', flexDirection: 'column', gap: 16 }}>
+      <div style={{ width: 36, height: 36, border: '2px solid #262626', borderTopColor: '#E8192C', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <p style={{ color: '#A0A0A0', fontSize: '0.8rem', letterSpacing: 3 }}>LOADING ADMIN</p>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#050505', gap: 16 }}>
+      <p style={{ color: '#E8192C' }}>⚠️ {error}</p>
+      <button onClick={() => window.location.reload()} style={{ background: '#E8192C', color: '#fff', border: 'none', padding: '0.75rem 2rem', borderRadius: 8, cursor: 'pointer' }}>Retry</button>
+    </div>
+  );
+
+  // ─── Filtered orders ────────────────────────────────────────────────────────
+  const pendingStatuses = new Set(['Confirmed', 'Ready']);
+  const displayOrders = orders.filter(o =>
+    orderFilter === 'all' ? true :
+    orderFilter === 'pending' ? pendingStatuses.has(o.status) :
+    o.status === 'Completed' || o.status === 'Cancelled'
+  );
+
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#050505',
-        color: '#F5F5F5',
-        fontFamily: "'DM Sans', sans-serif",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          background: '#000',
-          borderBottom: '1px solid rgba(232,25,44,0.2)',
-          padding: '0.875rem 1rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-        }}
-      >
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              fontFamily: "'Bebas Neue', sans-serif",
-              fontSize: '1.25rem',
-              letterSpacing: 1,
-              color: '#fff',
-            }}
-          >
-            Foodician Admin
-          </div>
-          <div
-            style={{
-              fontSize: '0.6rem',
-              letterSpacing: 2,
-              color: '#F5C300',
-              textTransform: 'uppercase',
-              fontWeight: 700,
-            }}
-          >
-            Kitchen Control
-          </div>
+    <div style={{ minHeight: '100vh', background: '#050505', color: '#F5F5F5', fontFamily: "'DM Sans', sans-serif" }}>
+
+      {/* ── Top Nav ─────────────────────────────────────────────────────────── */}
+      <div style={{ background: '#000', borderBottom: '1px solid #1a1a1a', position: 'sticky', top: 0, zIndex: 50, display: 'flex', alignItems: 'center', gap: 0, padding: '0 1.25rem', height: 54 }}>
+        {/* Brand */}
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.15rem', letterSpacing: 2, color: '#E8192C', paddingRight: '1.5rem', borderRight: '1px solid #1a1a1a', flexShrink: 0, lineHeight: 1 }}>
+          FOODICIAN<br /><span style={{ color: '#F5C300', fontSize: '0.65rem', letterSpacing: 3 }}>ADMIN</span>
         </div>
-        {/* ✅ Online/Offline toggle */}
-        <button
-          onClick={toggleRestaurant}
-          style={{
-            background: isOpen ? '#22C55E' : '#E8192C',
-            color: '#fff',
-            padding: '0.4rem 0.875rem',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-          }}
-        >
-          {isOpen ? '🟢 Online' : '🔴 Offline'}
-        </button>
-        <button
-          onClick={fetchOrders}
-          style={{
-            background: '#161616',
-            border: '1px solid #262626',
-            color: '#A0A0A0',
-            padding: '0.4rem 0.875rem',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-          }}
-        >
-          ↻ Refresh
-        </button>
-        <button
-          onClick={() => router.push('/')}
-          style={{
-            background: '#E8192C',
-            border: 'none',
-            color: '#fff',
-            padding: '0.4rem 0.875rem',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-          }}
-        >
-          ← App
-        </button>
-      </div>
 
-      {/* Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          overflowX: 'auto',
-          borderBottom: '1px solid #1a1a1a',
-          padding: '0 0.5rem',
-          gap: 4,
-        }}
-      >
-        {[
-          { id: 'orders', label: '📋 Orders' },
-          { id: 'analytics', label: '📊 Analytics' },
-          { id: 'menu', label: '🍽️ Menu' },
-          { id: 'customers', label: '👥 Customers' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as never)}
-            style={{
-              padding: '0.75rem 1rem',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              color: activeTab === tab.id ? '#E8192C' : '#A0A0A0',
-              borderBottom: activeTab === tab.id ? '2px solid #E8192C' : '2px solid transparent',
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ padding: '1.25rem 1rem', maxWidth: 1200, margin: '0 auto' }}>
-        {/* ORDERS TAB (unchanged) */}
-        {activeTab === 'orders' && (
-          <>
-            <h2
+        {/* Tab buttons */}
+        <div style={{ display: 'flex', flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
+          {NAV.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => id === 'messages' ? router.push('/admin/messages') : setActiveTab(id)}
               style={{
-                fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: '1.75rem',
-                color: '#F5C300',
-                marginBottom: '1rem',
+                padding: '0 1.1rem', height: 54, background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap',
+                color: activeTab === id ? '#fff' : '#555',
+                borderBottom: activeTab === id ? '2px solid #E8192C' : '2px solid transparent',
+                position: 'relative',
               }}
             >
-              Incoming Orders ({orders.length})
-            </h2>
-            {orders.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '4rem', color: '#A0A0A0' }}>
-                <div style={{ fontSize: '3rem', marginBottom: 8 }}>📭</div>
-                No orders yet.
+              {label}
+              {id === 'messages' && unreadMessages > 0 && (
+                <span style={{ position: 'absolute', top: 10, right: 8, background: '#E8192C', color: '#fff', borderRadius: '50%', fontSize: '0.6rem', fontWeight: 800, minWidth: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {unreadMessages > 99 ? '99+' : unreadMessages}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Right controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: '1rem', flexShrink: 0 }}>
+          <button
+            onClick={toggleRestaurant}
+            style={{ background: isOpen ? 'rgba(34,197,94,0.12)' : 'rgba(232,25,44,0.12)', border: `1px solid ${isOpen ? '#22C55E' : '#E8192C'}`, color: isOpen ? '#22C55E' : '#E8192C', padding: '0.3rem 0.875rem', borderRadius: 20, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOpen ? '#22C55E' : '#E8192C', display: 'inline-block' }} />
+            {isOpen ? 'Open' : 'Closed'}
+          </button>
+          <button onClick={() => router.push('/kitchen')} style={{ background: '#161616', border: '1px solid #262626', color: '#F5C300', padding: '0.3rem 0.875rem', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+            Kitchen
+          </button>
+          <button onClick={() => router.push('/rider')} style={{ background: '#161616', border: '1px solid #262626', color: '#60a5fa', padding: '0.3rem 0.875rem', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+            🛵 Rider
+          </button>
+          <button onClick={() => router.push('/')} style={{ background: '#E8192C', border: 'none', color: '#fff', padding: '0.3rem 0.875rem', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+            ← App
+          </button>
+        </div>
+      </div>
+
+      {/* ── Content ─────────────────────────────────────────────────────────── */}
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '1.5rem 1.5rem' }}>
+
+        {/* ORDERS */}
+        {activeTab === 'orders' && (
+          <>
+            {/* Header + filter pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+              <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', margin: 0 }}>
+                Orders
+              </h2>
+              <span style={{ fontSize: '0.8rem', color: '#A0A0A0' }}>{orders.length} total · {orders.filter(o => pendingStatuses.has(o.status)).length} awaiting action</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                {(['all', 'pending', 'completed'] as const).map(f => (
+                  <button key={f} onClick={() => setOrderFilter(f)} style={{ padding: '0.3rem 0.875rem', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', background: orderFilter === f ? '#E8192C' : '#161616', border: `1px solid ${orderFilter === f ? '#E8192C' : '#262626'}`, color: orderFilter === f ? '#fff' : '#A0A0A0' }}>
+                    {f.charAt(0).toUpperCase() + f.slice(1)}{' '}
+                    {f === 'all' ? orders.length : f === 'pending' ? orders.filter(o => pendingStatuses.has(o.status)).length : orders.filter(o => o.status === 'Completed' || o.status === 'Cancelled').length}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {displayOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '5rem', color: '#A0A0A0' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📭</div>
+                No orders in this view.
               </div>
             ) : (
-              orders.map((order) => (
-                <div
-                  key={order.id}
-                  style={{
-                    background: '#0F0F0F',
-                    border: '1px solid #262626',
-                    borderRadius: 12,
-                    padding: '1rem',
-                    marginBottom: '0.875rem',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: "'Bebas Neue', sans-serif",
-                        fontSize: '1.25rem',
-                        letterSpacing: 1,
-                      }}
-                    >
-                      #{order.verification_code}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '0.725rem',
-                        fontWeight: 700,
-                        padding: '0.25rem 0.625rem',
-                        borderRadius: 4,
-                        background:
-                          order.status === 'Ready'
-                            ? 'rgba(34,197,94,0.15)'
-                            : order.status === 'Cancelled'
-                            ? 'rgba(239,68,68,0.15)'
-                            : order.status === 'Completed'
-                            ? 'rgba(255,255,255,0.05)'
-                            : 'rgba(245,195,0,0.15)',
-                        color:
-                          order.status === 'Ready'
-                            ? '#22C55E'
-                            : order.status === 'Cancelled'
-                            ? '#ef4444'
-                            : order.status === 'Completed'
-                            ? '#888'
-                            : '#F5C300',
-                      }}
-                    >
-                      {order.status}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: '#A0A0A0', marginBottom: 6 }}>
-                    👤 {order.user_name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '0.8rem',
-                      background: 'rgba(0,0,0,0.3)',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: 6,
-                      marginBottom: '0.75rem',
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {(order.items ?? []).map((item, i) => (
-                      <div key={i}>📦 {item}</div>
-                    ))}
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: "'Bebas Neue', sans-serif",
-                        fontSize: '1.2rem',
-                        color: '#F5C300',
-                      }}
-                    >
-                      ₦{order.total_amount?.toLocaleString()}
-                    </span>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {order.status !== 'Ready' &&
-                        order.status !== 'Cancelled' &&
-                        order.status !== 'Completed' && (
-                          <button
-                            onClick={() => updateOrderStatus(order.id, 'Ready')}
-                            disabled={updatingId === order.id}
-                            style={{
-                              padding: '0.375rem 0.75rem',
-                              background: 'rgba(34,197,94,0.1)',
-                              border: '1px solid #22C55E',
-                              borderRadius: 6,
-                              color: '#22C55E',
-                              cursor: 'pointer',
-                              fontWeight: 700,
-                              fontSize: '0.8rem',
-                            }}
-                          >
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '0.875rem' }}>
+                {displayOrders.map(order => {
+                  const statusColor = order.status === 'Ready' ? '#22C55E' : order.status === 'Cancelled' ? '#ef4444' : order.status === 'Completed' ? '#888' : '#F5C300';
+                  const statusBg    = order.status === 'Ready' ? 'rgba(34,197,94,0.1)' : order.status === 'Cancelled' ? 'rgba(239,68,68,0.1)' : order.status === 'Completed' ? 'rgba(255,255,255,0.04)' : 'rgba(245,195,0,0.1)';
+                  return (
+                    <div key={order.id} style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {/* Row 1: status + code + time */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: 20, background: statusBg, color: statusColor }}>
+                          {order.status}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#555', fontFamily: 'monospace' }}>
+                          #{order.verification_code}
+                        </span>
+                        {order.payment_method && (
+                          <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.5rem', borderRadius: 4, background: 'rgba(245,195,0,0.08)', color: '#F5C300', border: '1px solid rgba(245,195,0,0.15)', marginLeft: 'auto' }}>
+                            {order.payment_method.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      {/* Row 2: customer + amount */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '1rem', color: '#F5F5F5' }}>{order.user_name}</div>
+                          <div style={{ fontSize: '0.75rem', color: '#555', marginTop: 2 }}>
+                            {order.items?.length ?? 0} item{(order.items?.length ?? 0) !== 1 ? 's' : ''} · {timeAgo(order.created_at)}
+                          </div>
+                        </div>
+                        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.35rem', color: '#F5C300', lineHeight: 1, textAlign: 'right' }}>
+                          ₦{order.total_amount?.toLocaleString()}
+                        </div>
+                      </div>
+                      {/* Row 3: items */}
+                      <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '0.5rem 0.75rem', fontSize: '0.78rem', color: '#888', lineHeight: 1.7 }}>
+                        {(order.items ?? []).map((item, i) => <div key={i}>{item}</div>)}
+                      </div>
+                      {/* Row 4: actions */}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {order.status !== 'Ready' && order.status !== 'Cancelled' && order.status !== 'Completed' && (
+                          <button onClick={() => updateOrderStatus(order.id, 'Ready')} disabled={updatingId === order.id}
+                            style={{ flex: 1, padding: '0.45rem', background: 'rgba(34,197,94,0.08)', border: '1px solid #22C55E', borderRadius: 8, color: '#22C55E', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
                             ✅ Ready
                           </button>
                         )}
-                      {order.status === 'Ready' && (
-                        <button
-                          onClick={() => updateOrderStatus(order.id, 'Completed')}
-                          disabled={updatingId === order.id}
-                          style={{
-                            padding: '0.375rem 0.75rem',
-                            background: 'rgba(96,165,250,0.1)',
-                            border: '1px solid #60a5fa',
-                            borderRadius: 6,
-                            color: '#60a5fa',
-                            cursor: 'pointer',
-                            fontWeight: 700,
-                            fontSize: '0.8rem',
-                          }}
-                        >
-                          ✔ Collected
-                        </button>
-                      )}
-                      {order.status !== 'Cancelled' && order.status !== 'Completed' && (
-                        <button
-                          onClick={() => updateOrderStatus(order.id, 'Cancelled')}
-                          disabled={updatingId === order.id}
-                          style={{
-                            padding: '0.375rem 0.75rem',
-                            background: 'transparent',
-                            border: '1px solid #262626',
-                            borderRadius: 6,
-                            color: '#A0A0A0',
-                            cursor: 'pointer',
-                            fontWeight: 700,
-                            fontSize: '0.8rem',
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      )}
+                        {order.status === 'Ready' && (
+                          <button onClick={() => updateOrderStatus(order.id, 'Completed')} disabled={updatingId === order.id}
+                            style={{ flex: 1, padding: '0.45rem', background: 'rgba(96,165,250,0.08)', border: '1px solid #60a5fa', borderRadius: 8, color: '#60a5fa', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
+                            ✔ Collected
+                          </button>
+                        )}
+                        {order.status !== 'Cancelled' && order.status !== 'Completed' && (
+                          <button onClick={() => updateOrderStatus(order.id, 'Cancelled')} disabled={updatingId === order.id}
+                            style={{ padding: '0.45rem 0.75rem', background: 'transparent', border: '1px solid #262626', borderRadius: 8, color: '#555', cursor: 'pointer', fontSize: '0.8rem' }}>
+                            Cancel
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#444', marginTop: 6 }}>
-                    {new Date(order.created_at).toLocaleString()}
-                  </div>
-                </div>
-              ))
+                  );
+                })}
+              </div>
             )}
           </>
         )}
 
-        {/* ANALYTICS TAB (unchanged) */}
+        {/* ANALYTICS */}
         {activeTab === 'analytics' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {/* Summary cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div
-                style={{
-                  background: '#0F0F0F',
-                  border: '1px solid #262626',
-                  borderRadius: 12,
-                  padding: '1.5rem',
-                  textAlign: 'center',
-                }}
-              >
-                <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginBottom: 4 }}>
-                  Today&apos;s Orders
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', margin: 0 }}>Analytics</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+              {[{ label: "Today's Orders", value: analytics.todayOrders, fmt: (v: number) => v.toString() },
+                { label: "Today's Revenue", value: analytics.todayRevenue, fmt: (v: number) => `₦${v.toLocaleString()}` }].map(({ label, value, fmt }) => (
+                <div key={label} style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1.5rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginBottom: 6 }}>{label}</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.75rem', color: '#F5C300', lineHeight: 1 }}>{fmt(value)}</div>
                 </div>
-                <div
-                  style={{
-                    fontFamily: "'Bebas Neue', sans-serif",
-                    fontSize: '3.5rem',
-                    color: '#F5C300',
-                    lineHeight: 1,
-                  }}
-                >
-                  {analytics.todayOrders}
-                </div>
-              </div>
-              <div
-                style={{
-                  background: '#0F0F0F',
-                  border: '1px solid #262626',
-                  borderRadius: 12,
-                  padding: '1.5rem',
-                  textAlign: 'center',
-                }}
-              >
-                <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginBottom: 4 }}>
-                  Today&apos;s Revenue
-                </div>
-                <div
-                  style={{
-                    fontFamily: "'Bebas Neue', sans-serif",
-                    fontSize: '2.5rem',
-                    color: '#F5C300',
-                    lineHeight: 1,
-                  }}
-                >
-                  ₦{analytics.todayRevenue.toLocaleString()}
-                </div>
-              </div>
+              ))}
             </div>
-            {/* Top 5 items */}
-            <div
-              style={{
-                background: '#0F0F0F',
-                border: '1px solid #262626',
-                borderRadius: 12,
-                padding: '1.25rem',
-              }}
-            >
-              <h3
-                style={{
-                  fontFamily: "'Bebas Neue', sans-serif",
-                  fontSize: '1.5rem',
-                  color: '#F5C300',
-                  marginBottom: '1rem',
-                }}
-              >
-                🔥 Top 5 Items
-              </h3>
-              {analytics.popularItems.length === 0 ? (
-                <p style={{ color: '#A0A0A0', textAlign: 'center' }}>No data yet</p>
-              ) : (
-                analytics.popularItems.map((item, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      borderBottom: '1px solid #1a1a1a',
-                      padding: '0.5rem 0',
-                    }}
-                  >
-                    <span>{item.name}</span>
-                    <span style={{ color: '#F5C300' }}>{item.count} orders</span>
-                  </div>
-                ))
-              )}
+            <div style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1.25rem' }}>
+              <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.35rem', color: '#F5C300', marginBottom: '1rem' }}>🔥 Top Items</h3>
+              {analytics.popularItems.length === 0 ? <p style={{ color: '#A0A0A0', textAlign: 'center' }}>No data yet</p> : analytics.popularItems.map((item, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1a1a1a', padding: '0.5rem 0' }}>
+                  <span>{item.name}</span><span style={{ color: '#F5C300' }}>{item.count} orders</span>
+                </div>
+              ))}
             </div>
-            {/* Sales Trends Charts */}
-            <div
-              style={{
-                background: '#0F0F0F',
-                border: '1px solid #262626',
-                borderRadius: 12,
-                padding: '1.25rem',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '1rem',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <h3
-                  style={{
-                    fontFamily: "'Bebas Neue', sans-serif",
-                    fontSize: '1.5rem',
-                    color: '#F5C300',
-                  }}
-                >
-                  📈 Sales Trends
-                </h3>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => setSalesView('daily')}
-                    style={{
-                      padding: '0.3rem 0.8rem',
-                      borderRadius: 6,
-                      background: salesView === 'daily' ? '#E8192C' : '#161616',
-                      border: '1px solid #262626',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                    }}
-                  >
-                    Daily
-                  </button>
-                  <button
-                    onClick={() => setSalesView('weekly')}
-                    style={{
-                      padding: '0.3rem 0.8rem',
-                      borderRadius: 6,
-                      background: salesView === 'weekly' ? '#E8192C' : '#161616',
-                      border: '1px solid #262626',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                    }}
-                  >
-                    Weekly
-                  </button>
+            <div style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.35rem', color: '#F5C300', margin: 0 }}>📈 Sales Trends</h3>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {(['daily', 'weekly'] as const).map(v => (
+                    <button key={v} onClick={() => setSalesView(v)} style={{ padding: '0.3rem 0.8rem', borderRadius: 6, background: salesView === v ? '#E8192C' : '#161616', border: '1px solid #262626', color: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
+                  ))}
                 </div>
               </div>
-              <div style={{ width: '100%', height: 350 }}>
+              <div style={{ width: '100%', height: 320 }}>
                 <ResponsiveContainer>
-                  {salesView === 'daily' ? (
-                    <LineChart data={dailySales} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                      <XAxis dataKey="date" stroke="#A0A0A0" />
-                      <YAxis stroke="#A0A0A0" />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#0F0F0F', borderColor: '#262626', color: '#fff' }}
-                        labelStyle={{ color: '#F5C300' }}
-                      />
-                      <Legend />
-                      <Line type="monotone" dataKey="revenue" stroke="#F5C300" name="Revenue (₦)" strokeWidth={2} dot={{ fill: '#F5C300' }} />
-                    </LineChart>
-                  ) : (
-                    <BarChart data={weeklySales} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                      <XAxis dataKey="week" stroke="#A0A0A0" />
-                      <YAxis stroke="#A0A0A0" />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#0F0F0F', borderColor: '#262626', color: '#fff' }}
-                        labelStyle={{ color: '#F5C300' }}
-                      />
-                      <Legend />
-                      <Bar dataKey="revenue" fill="#F5C300" name="Revenue (₦)" />
-                    </BarChart>
-                  )}
+                  {salesView === 'daily'
+                    ? <LineChart data={dailySales}><CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" /><XAxis dataKey="date" stroke="#555" /><YAxis stroke="#555" /><Tooltip contentStyle={{ backgroundColor: '#0C0C0C', borderColor: '#262626', color: '#fff' }} /><Legend /><Line type="monotone" dataKey="revenue" stroke="#F5C300" name="Revenue (₦)" strokeWidth={2} /></LineChart>
+                    : <BarChart data={weeklySales}><CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" /><XAxis dataKey="week" stroke="#555" /><YAxis stroke="#555" /><Tooltip contentStyle={{ backgroundColor: '#0C0C0C', borderColor: '#262626', color: '#fff' }} /><Legend /><Bar dataKey="revenue" fill="#F5C300" name="Revenue (₦)" /></BarChart>
+                  }
                 </ResponsiveContainer>
               </div>
             </div>
           </div>
         )}
 
-        {/* MENU TAB (unchanged) */}
-        {activeTab === 'menu' && (
+        {/* PRODUCTS */}
+        {activeTab === 'products' && (
           <>
-            <div
-              style={{
-                background: '#0F0F0F',
-                border: '1px solid #262626',
-                borderRadius: 12,
-                padding: '1.25rem',
-                marginBottom: '1.25rem',
-              }}
-            >
-              <h3
-                style={{
-                  fontFamily: "'Bebas Neue', sans-serif",
-                  fontSize: '1.25rem',
-                  color: '#F5C300',
-                  marginBottom: '0.875rem',
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+              <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', margin: 0 }}>Products</h2>
+              <button
+                onClick={async () => {
+                  setSyncingImages(true);
+                  const res = await fetch('/api/admin/sync-images', { method: 'POST' });
+                  const d = await res.json();
+                  setSyncingImages(false);
+                  if (!res.ok) { alert('Sync failed: ' + d.error); return; }
+                  alert(`Done! Updated ${d.updated.length} item${d.updated.length !== 1 ? 's' : ''}${d.skipped.length ? `\nUnmatched: ${d.skipped.join(', ')}` : ''}`);
+                  fetchMenu();
                 }}
+                disabled={syncingImages}
+                style={{ marginLeft: 'auto', background: syncingImages ? '#262626' : 'rgba(245,195,0,0.1)', border: '1px solid rgba(245,195,0,0.3)', color: '#F5C300', padding: '0.4rem 1rem', borderRadius: 8, cursor: syncingImages ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.82rem', opacity: syncingImages ? 0.6 : 1 }}
               >
-                {editingItem ? 'Edit Item' : 'Add New Item'}
-              </h3>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <input
-                  type="text"
-                  placeholder="Name"
-                  value={menuForm.name}
-                  onChange={(e) => setMenuForm({ ...menuForm, name: e.target.value })}
-                  style={inputStyle}
-                />
-                <input
-                  type="text"
-                  placeholder="Description"
-                  value={menuForm.desc}
-                  onChange={(e) => setMenuForm({ ...menuForm, desc: e.target.value })}
-                  style={inputStyle}
-                />
-                <input
-                  type="number"
-                  placeholder="Price (₦)"
-                  value={menuForm.price === 0 ? '' : menuForm.price}
-                  onChange={(e) =>
-                    setMenuForm({ ...menuForm, price: parseInt(e.target.value) || 0 })
-                  }
-                  style={inputStyle}
-                />
-                <input
-                  type="text"
-                  placeholder="Image URL"
-                  value={menuForm.image_url}
-                  onChange={(e) => setMenuForm({ ...menuForm, image_url: e.target.value })}
-                  style={inputStyle}
-                />
-                <input
-                  type="number"
-                  placeholder="Prep time (mins)"
-                  value={menuForm.mins === 0 ? '' : menuForm.mins}
-                  onChange={(e) =>
-                    setMenuForm({ ...menuForm, mins: parseInt(e.target.value) || 0 })
-                  }
-                  style={inputStyle}
-                />
-                <select
-                  value={menuForm.category}
-                  onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })}
-                  style={{ ...inputStyle, cursor: 'pointer' }}
-                >
+                {syncingImages ? 'Syncing…' : '🖼 Sync Images from Public'}
+              </button>
+            </div>
+            <div style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
+              <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', color: '#F5C300', marginBottom: '0.875rem' }}>{editingItem ? 'Edit Item' : 'Add New Item'}</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                {[['text', 'Name', 'name'], ['text', 'Description', 'desc'], ['text', 'Image URL', 'image_url']].map(([type, ph, key]) => (
+                  <input key={key} type={type} placeholder={ph} value={(menuForm as Record<string, unknown>)[key] as string}
+                    onChange={e => setMenuForm({ ...menuForm, [key]: e.target.value })} style={inputStyle} />
+                ))}
+                <input type="number" placeholder="Price (₦)" value={menuForm.price || ''} onChange={e => setMenuForm({ ...menuForm, price: parseInt(e.target.value) || 0 })} style={inputStyle} />
+                <input type="number" placeholder="Prep time (mins)" value={menuForm.mins || ''} onChange={e => setMenuForm({ ...menuForm, mins: parseInt(e.target.value) || 0 })} style={inputStyle} />
+                <select value={menuForm.category} onChange={e => setMenuForm({ ...menuForm, category: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
                   <option value="pasta">Spaghetti</option>
                   <option value="noodles">Indomie</option>
                   <option value="protein">Proteins</option>
                   <option value="sides">Sides</option>
                 </select>
               </div>
-
               <div style={{ display: 'flex', gap: 8, marginTop: '1rem' }}>
-                <button
-                  onClick={saveMenuItem}
-                  style={{
-                    background: '#E8192C',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '0.625rem 1.25rem',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  {editingItem ? 'Update' : 'Create'}
-                </button>
-                {editingItem && (
-                  <button
-                    onClick={() => {
-                      setEditingItem(null);
-                      setMenuForm({
-                        name: '',
-                        desc: '',
-                        price: 0,
-                        category: 'pasta',
-                        image_url: '',
-                        mins: 10,
-                      });
-                    }}
-                    style={{
-                      background: '#161616',
-                      color: '#A0A0A0',
-                      border: '1px solid #262626',
-                      padding: '0.625rem 1.25rem',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                )}
+                <button onClick={saveMenuItem} style={{ background: '#E8192C', color: '#fff', border: 'none', padding: '0.625rem 1.5rem', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>{editingItem ? 'Update' : 'Create'}</button>
+                {editingItem && <button onClick={() => { setEditingItem(null); setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 }); }} style={{ background: '#161616', color: '#A0A0A0', border: '1px solid #262626', padding: '0.625rem 1.25rem', borderRadius: 8, cursor: 'pointer' }}>Cancel</button>}
               </div>
             </div>
-
-            <h3
-              style={{
-                fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: '1.25rem',
-                color: '#F5C300',
-                marginBottom: '0.75rem',
-              }}
-            >
-              Existing Items ({menuItems.length})
-            </h3>
-            {menuItems.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  background: '#0F0F0F',
-                  border: '1px solid #262626',
-                  borderRadius: 10,
-                  padding: '0.875rem',
-                  marginBottom: '0.5rem',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600 }}>{item.name}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#A0A0A0' }}>
-                    ₦{item.price} · {item.category} · {item.mins} mins
+            <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', color: '#F5C300', marginBottom: '0.75rem' }}>Existing Items ({menuItems.length})</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.625rem' }}>
+              {menuItems.map(item => (
+                <div key={item.id} style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 10, padding: '0.875rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{item.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#555', marginTop: 2 }}>₦{item.price.toLocaleString()} · {item.category} · {item.mins}m</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => editItem(item)} style={{ color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Edit</button>
+                    <button onClick={() => deleteMenuItem(item.id)} style={{ color: '#E8192C', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Delete</button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => editItem(item)}
-                    style={{
-                      color: '#60a5fa',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => deleteMenuItem(item.id)}
-                    style={{
-                      color: '#E8192C',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </>
         )}
 
-        {/* CUSTOMERS TAB – WITH TOTAL SPENT COLUMN */}
-        {activeTab === 'customers' && (
+        {/* MARKETING */}
+        {activeTab === 'marketing' && (
           <>
-            <h2
-              style={{
-                fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: '1.75rem',
-                color: '#F5C300',
-                marginBottom: '1rem',
-              }}
-            >
-              Registered Customers ({users.length})
-            </h2>
-            {users.length === 0 ? (
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', marginBottom: '1.25rem' }}>Marketing & Promo Codes</h2>
+
+            {/* Create form */}
+            <div style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
+              <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.2rem', color: '#F5C300', marginBottom: '0.875rem' }}>Create Promo Code</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                <input
+                  type="text" placeholder="Code (e.g. SAVE500)" value={promoForm.code}
+                  onChange={e => setPromoForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+                  style={{ ...inputStyle, fontFamily: 'monospace', letterSpacing: 2 }}
+                />
+                <select value={promoForm.discount_type} onChange={e => setPromoForm(f => ({ ...f, discount_type: e.target.value as 'fixed' | 'percentage' }))} style={{ ...inputStyle, cursor: 'pointer' }}>
+                  <option value="fixed">₦ Fixed Amount Off</option>
+                  <option value="percentage">% Percentage Off</option>
+                </select>
+                <input
+                  type="number" placeholder={promoForm.discount_type === 'percentage' ? 'Discount %' : 'Discount ₦'} value={promoForm.discount_value || ''}
+                  onChange={e => setPromoForm(f => ({ ...f, discount_value: parseFloat(e.target.value) || 0 }))}
+                  style={inputStyle}
+                />
+                <input
+                  type="number" placeholder="Min order ₦ (optional)" value={promoForm.min_order_amount}
+                  onChange={e => setPromoForm(f => ({ ...f, min_order_amount: e.target.value }))}
+                  style={inputStyle}
+                />
+                <input
+                  type="number" placeholder="Max uses (optional)" value={promoForm.max_uses}
+                  onChange={e => setPromoForm(f => ({ ...f, max_uses: e.target.value }))}
+                  style={inputStyle}
+                />
+                <input
+                  type="date" placeholder="Expiry date (optional)" value={promoForm.expiry_date}
+                  onChange={e => setPromoForm(f => ({ ...f, expiry_date: e.target.value }))}
+                  style={inputStyle}
+                />
+                <input
+                  type="text" placeholder="Description (optional)" value={promoForm.description}
+                  onChange={e => setPromoForm(f => ({ ...f, description: e.target.value }))}
+                  style={{ ...inputStyle, gridColumn: 'span 2' }}
+                />
+              </div>
+              <button
+                onClick={createPromo} disabled={savingPromo || !promoForm.code || promoForm.discount_value <= 0}
+                style={{ marginTop: '1rem', background: promoForm.code && promoForm.discount_value > 0 ? '#E8192C' : '#262626', color: '#fff', border: 'none', padding: '0.625rem 1.5rem', borderRadius: 8, cursor: promoForm.code ? 'pointer' : 'not-allowed', fontWeight: 600, opacity: savingPromo ? 0.6 : 1 }}
+              >
+                {savingPromo ? 'Creating…' : '+ Create Promo Code'}
+              </button>
+            </div>
+
+            {/* Promo list */}
+            {promos.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '3rem', color: '#A0A0A0' }}>
-                No customers yet.
+                <div style={{ fontSize: '2rem', marginBottom: 8 }}>🏷️</div>
+                <p>No promo codes yet — create one above.</p>
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #262626', color: '#A0A0A0' }}>
-                      <th style={{ padding: '0.625rem', textAlign: 'left' }}>Name</th>
-                      <th style={{ padding: '0.625rem', textAlign: 'left' }}>Email</th>
-                      <th style={{ padding: '0.625rem', textAlign: 'left' }}>Total Spent</th>
-                      <th style={{ padding: '0.625rem', textAlign: 'left' }}>Wallet</th>
-                      <th style={{ padding: '0.625rem', textAlign: 'left' }}>Joined</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                        <td style={{ padding: '0.625rem' }}>{user.name}</td>
-                        <td style={{ padding: '0.625rem', color: '#A0A0A0' }}>{user.email}</td>
-                        <td style={{ padding: '0.625rem', color: '#F5C300' }}>
-                          ₦{user.total_spent?.toLocaleString() ?? 0}
-                        </td>
-                        <td style={{ padding: '0.625rem', color: '#F5C300' }}>
-                          ₦{user.wallet?.toLocaleString()}
-                        </td>
-                        <td style={{ padding: '0.625rem', color: '#A0A0A0', fontSize: '0.75rem' }}>
-                          {new Date(user.created_at).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.875rem' }}>
+                {promos.map(p => (
+                  <div key={p.id} style={{ background: '#0C0C0C', border: `1px solid ${p.is_active ? '#1a1a1a' : '#111'}`, borderRadius: 12, padding: '1rem', opacity: p.is_active ? 1 : 0.5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', letterSpacing: 2, color: '#F5C300' }}>{p.code}</span>
+                      <button
+                        onClick={() => togglePromo(p.id, p.is_active)}
+                        style={{ width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', background: p.is_active ? '#22C55E' : '#262626', position: 'relative', transition: 'background 0.2s' }}
+                      >
+                        <span style={{ position: 'absolute', top: 2, left: p.is_active ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: '#A0A0A0' }}>
+                      {p.discount_type === 'percentage' ? `${p.discount_value}% off` : `₦${p.discount_value.toLocaleString()} off`}
+                      {p.min_order_amount ? ` · min ₦${p.min_order_amount.toLocaleString()}` : ''}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#555', marginTop: 4 }}>
+                      Used: {p.current_uses}{p.max_uses ? ` / ${p.max_uses}` : ''} times
+                      {p.expiry_date ? ` · expires ${new Date(p.expiry_date).toLocaleDateString()}` : ''}
+                    </div>
+                    {p.description && <div style={{ fontSize: '0.75rem', color: '#444', marginTop: 6 }}>{p.description}</div>}
+                  </div>
+                ))}
               </div>
             )}
           </>
         )}
-      </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        {/* CUSTOMERS */}
+        {activeTab === 'customers' && (
+          <>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', marginBottom: '1rem' }}>Customers ({users.length})</h2>
+            {users.length === 0
+              ? <div style={{ textAlign: 'center', padding: '4rem', color: '#A0A0A0' }}>No customers yet.</div>
+              : <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #1a1a1a', color: '#555' }}>
+                        {['Name', 'Email', 'Total Spent', 'Wallet', 'Joined', 'Role'].map(h => <th key={h} style={{ padding: '0.625rem 0.875rem', textAlign: 'left', fontWeight: 600 }}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map(u => (
+                        <tr key={u.id} style={{ borderBottom: '1px solid #111' }}>
+                          <td style={{ padding: '0.75rem 0.875rem', fontWeight: 600 }}>{u.name}</td>
+                          <td style={{ padding: '0.75rem 0.875rem', color: '#A0A0A0' }}>{u.email}</td>
+                          <td style={{ padding: '0.75rem 0.875rem', color: '#F5C300' }}>₦{(u.total_spent ?? 0).toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem 0.875rem', color: '#F5C300' }}>₦{u.wallet?.toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem 0.875rem', color: '#555', fontSize: '0.75rem' }}>{new Date(u.created_at).toLocaleDateString()}</td>
+                          <td style={{ padding: '0.75rem 0.875rem' }}>
+                            <select
+                              value={u.role || 'user'}
+                              onChange={e => changeUserRole(u, e.target.value)}
+                              style={{
+                                background: '#161616', border: '1px solid #262626', borderRadius: 6,
+                                padding: '0.25rem 0.5rem', fontSize: '0.75rem', cursor: 'pointer', outline: 'none',
+                                color: u.role === 'admin' ? '#F5C300' : u.role === 'kitchen' ? '#FB923C' : u.role === 'rider' ? '#60a5fa' : '#A0A0A0',
+                              }}
+                            >
+                              <option value="user">Customer</option>
+                              <option value="kitchen">Kitchen Staff</option>
+                              <option value="rider">Rider</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+            }
+          </>
+        )}
+
+        {/* REVIEWS */}
+        {activeTab === 'reviews' && (
+          <>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', marginBottom: '1.25rem' }}>Customer Reviews ({reviews.length})</h2>
+            {reviews.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '4rem', color: '#A0A0A0' }}>
+                <div style={{ fontSize: '2rem', marginBottom: 8 }}>⭐</div>
+                <p>No reviews yet.</p>
+                <p style={{ fontSize: '0.8rem', color: '#555', marginTop: 4 }}>Reviews appear here when customers rate their orders.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '0.75rem' }}>
+                {reviews.map(r => (
+                  <div key={r.id} style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#F5F5F5' }}>{r.item_name}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#555', marginTop: 2 }}>Order #{r.order_id?.toString().slice(0, 8)}</div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: '#555', flexShrink: 0 }}>{timeAgo(r.created_at)}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 2, marginBottom: 6 }}>
+                      {[1,2,3,4,5].map(star => (
+                        <span key={star} style={{ fontSize: '1rem', color: star <= r.rating ? '#F5C300' : '#2a2a2a' }}>★</span>
+                      ))}
+                      <span style={{ fontSize: '0.78rem', color: '#A0A0A0', marginLeft: 6 }}>{r.rating}/5</span>
+                    </div>
+                    {r.comment && <p style={{ fontSize: '0.8rem', color: '#A0A0A0', margin: 0, fontStyle: 'italic' }}>"{r.comment}"</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SETTINGS */}
+        {activeTab === 'settings' && (
+          <div style={{ maxWidth: 640 }}>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', marginBottom: '0.5rem' }}>Shop Hours</h2>
+            <p style={{ fontSize: '0.8rem', color: '#A0A0A0', marginBottom: '1.25rem' }}>
+              Set when Foodician auto-opens and closes. Toggle off to keep the shop closed that day regardless of time.
+            </p>
+            {shopHours.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: '#A0A0A0' }}>
+                <p style={{ marginBottom: '1rem' }}>No hours configured yet.</p>
+                <button onClick={seedShopHours} style={{ background: '#E8192C', color: '#fff', border: 'none', padding: '0.75rem 1.5rem', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+                  Initialise Default Hours
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                {shopHours.map(row => (
+                  <div key={row.id} style={{ background: '#0C0C0C', border: `1px solid ${!row.is_closed ? '#1a1a1a' : '#111'}`, borderRadius: 10, padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', gap: '0.875rem', opacity: row.is_closed ? 0.5 : 1 }}>
+                    <button onClick={() => updateHourRow(row.id, { is_closed: !row.is_closed })} style={{ width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', flexShrink: 0, background: !row.is_closed ? '#22C55E' : '#262626', position: 'relative', transition: 'background 0.2s' }}>
+                      <span style={{ position: 'absolute', top: 2, left: !row.is_closed ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                    </button>
+                    <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.1rem', color: '#F5F5F5', width: 32, flexShrink: 0 }}>{DAY_NAMES[row.day_of_week]}</span>
+                    <input type="time" value={row.open_time} onChange={e => updateHourRow(row.id, { open_time: e.target.value })} disabled={row.is_closed} style={{ ...inputStyle, width: 'auto', flex: 1, fontSize: '0.85rem' }} />
+                    <span style={{ color: '#555', fontSize: '0.8rem', flexShrink: 0 }}>to</span>
+                    <input type="time" value={row.close_time} onChange={e => updateHourRow(row.id, { close_time: e.target.value })} disabled={row.is_closed} style={{ ...inputStyle, width: 'auto', flex: 1, fontSize: '0.85rem' }} />
+                    <button onClick={() => saveHourRow(row)} disabled={savingHours} style={{ background: '#E8192C', color: '#fff', border: 'none', borderRadius: 6, padding: '0.375rem 0.875rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, flexShrink: 0, opacity: savingHours ? 0.6 : 1 }}>Save</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }

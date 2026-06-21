@@ -39,12 +39,12 @@ const navItems = [
 export default function BottomNav() {
   const pathname = usePathname();
 
-  // Hide nav on admin page
-  if (pathname === '/admin') return null;
+  // Hide nav on admin and kitchen pages
+  if (pathname.startsWith('/admin') || pathname.startsWith('/kitchen') || pathname.startsWith('/rider')) return null;
 
   return (
     <nav
-      className="bottom-nav-safe fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] h-[70px] z-[100] bg-black border-t border-[#262626] flex"
+      className="bottom-nav-safe fixed bottom-0 left-0 right-0 w-full h-[70px] z-[100] bg-black border-t border-[#262626] flex"
       style={{ boxSizing: 'border-box' }}
     >
       {navItems.map(({ href, label, icon }) => {

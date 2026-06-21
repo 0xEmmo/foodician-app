@@ -10,7 +10,7 @@ export async function GET() {
   // 1. Fetch all profiles
   const { data: profiles, error: profilesError } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, name, wallet, created_at');
+    .select('id, email, name, wallet, role, created_at');
 
   if (profilesError) {
     return NextResponse.json({ error: profilesError.message }, { status: 500 });
@@ -28,7 +28,7 @@ export async function GET() {
 
   // 3. Calculate total spent per email
   const spentMap: Record<string, number> = {};
-  (spentData ?? []).forEach((order: any) => {
+  (spentData ?? []).forEach((order: { user_email: string; total_amount: number }) => {
     const email = order.user_email;
     if (email) {
       spentMap[email] = (spentMap[email] || 0) + order.total_amount;
@@ -42,4 +42,17 @@ export async function GET() {
   }));
 
   return NextResponse.json(usersWithSpent);
+}
+
+export async function PATCH(request: Request) {
+  const { id, role } = await request.json();
+  if (!id || !['admin', 'user', 'kitchen', 'rider'].includes(role)) {
+    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
+  }
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .update({ role })
+    .eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }

@@ -16,7 +16,7 @@ export const MENU = [
 ];
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-export type MenuItem = typeof MENU[number];
+export type MenuItem = typeof MENU[number] & { image_url?: string };
 export type Transaction = { type: 'credit' | 'debit'; amount: number; desc: string; time: string };
 
 export type Order = {
@@ -38,6 +38,8 @@ export type SessionUser = {
   email: string;
   wallet: number;
   transactions: Transaction[];
+  phone?: string;
+  role?: string;
 };
 
 type AppStore = {
@@ -132,6 +134,8 @@ export const useAppStore = create<AppStore>()((set, get) => ({
               email: profile.email,
               wallet: profile.wallet ?? 0,
               transactions: profile.transactions ?? [],
+              phone: profile.phone ?? undefined,
+              role: profile.role ?? 'user',
             },
           });
           await get().fetchOrders();
