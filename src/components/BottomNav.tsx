@@ -44,8 +44,12 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="bottom-nav-safe fixed bottom-0 left-0 right-0 w-full h-[70px] z-[100] bg-black border-t border-[#262626] flex"
-      style={{ boxSizing: 'border-box' }}
+      className="fixed bottom-0 left-0 right-0 w-full z-[100] bg-black border-t border-[#262626] flex"
+      style={{
+        boxSizing: 'border-box',
+        height: 'calc(70px + env(safe-area-inset-bottom, 0px))',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
     >
       {navItems.map(({ href, label, icon }) => {
         const isActive = pathname === href;

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
+import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen } from 'lucide-react';
 import { useAppStore } from '@/src/store/useAppStore';
 import MenuCard from '@/src/components/MenuCard';
 import FavoritesCarousel from '@/src/components/FavoritesCarousel';
@@ -520,14 +521,15 @@ function CartSheet({
         onClick={onClose}
       >
         <div
-          className={`bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] w-full max-w-[480px] rounded-t-[24px] p-5 pb-8 flex flex-col max-h-[85vh] transition-transform duration-400 ${open ? 'translate-y-0' : 'translate-y-full'}`}
+          className={`bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] w-full max-w-[480px] rounded-t-[24px] p-5 flex flex-col transition-transform duration-400 ${open ? 'translate-y-0' : 'translate-y-full'}`}
+          style={{ maxHeight: '90dvh' }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="w-10 h-1 bg-[#262626] rounded-full mx-auto mb-5 flex-shrink-0" />
           <div className="flex-shrink-0 mb-4" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.5rem', letterSpacing: '1px', color: '#fff' }}>
             Your Box Summary 🛒
           </div>
-          <div className="overflow-y-auto flex-1 no-scrollbar">
+          <div className="overflow-y-auto flex-1 no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
             {cartIds.length === 0 ? (
               <div className="text-center py-12 text-[#A0A0A0] text-[0.95rem] font-medium">
                 🍱 Your box is empty. Add items from the menu.
@@ -559,7 +561,7 @@ function CartSheet({
             )}
           </div>
           {cartIds.length > 0 && (
-            <div className="mt-auto pt-5 border-t border-[#262626] flex-shrink-0">
+            <div className="mt-auto pt-5 border-t border-[#262626] flex-shrink-0" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
               <div className="flex justify-between items-center pb-4">
                 <span className="text-[0.95rem] text-[#A0A0A0] font-medium">Subtotal</span>
                 <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', letterSpacing: '0.5px' }}>₦{subtotal.toLocaleString()}</span>
@@ -589,223 +591,233 @@ function CartSheet({
         onClick={() => setShowPay(false)}
       >
         <div
-          className={`bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] w-full max-w-[480px] rounded-t-[24px] p-5 pb-8 flex flex-col max-h-[85vh] overflow-y-auto transition-transform duration-400 ${showPay ? 'translate-y-0' : 'translate-y-full'}`}
+          className={`bg-[rgba(15,15,15,0.85)] backdrop-blur-[20px] border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] w-full max-w-[480px] rounded-t-[24px] flex flex-col transition-transform duration-400 ${showPay ? 'translate-y-0' : 'translate-y-full'}`}
+          style={{ maxHeight: '92dvh' }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="w-10 h-1 bg-[#262626] rounded-full mx-auto mb-5 flex-shrink-0" />
-          <div className="flex-shrink-0 mb-1" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.5rem', letterSpacing: '1px', color: '#fff' }}>
-            Complete Checkout
-          </div>
-          <p className="text-[0.825rem] text-[#A0A0A0] mb-6 leading-[1.4]">Pay securely ahead of arrival. The kitchen accepts instantly.</p>
-
-          {/* ─── DELIVERY / PICKUP TOGGLE ─── */}
-          <div className="flex gap-2 mb-6">
-            <button
-              onClick={() => {
-                setOrderType('pickup');
-                setDeliveryAddress('');
-                setDeliveryFee(0);
-                setEstimatedTime(0);
-                setDeliveryData(null);
-              }}
-              className={`flex-1 py-3 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all ${
-                orderType === 'pickup'
-                  ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C]'
-                  : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'
-              }`}
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            >
-              🏪 Pickup
-            </button>
-            <button
-              onClick={() => setOrderType('delivery')}
-              className={`flex-1 py-3 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all ${
-                orderType === 'delivery'
-                  ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C]'
-                  : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'
-              }`}
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            >
-              🛵 Delivery
-            </button>
+          {/* ── Fixed header (does NOT scroll) ── */}
+          <div className="flex-shrink-0 px-5 pt-5 pb-4 border-b border-white/5">
+            <div className="w-10 h-1 bg-[#262626] rounded-full mx-auto mb-4" />
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.5rem', letterSpacing: '1px', color: '#fff', marginBottom: 4 }}>
+              Complete Checkout
+            </div>
+            <p className="text-[0.8rem] text-[#A0A0A0] leading-[1.4]">Pay securely ahead of arrival. The kitchen accepts instantly.</p>
           </div>
 
-          {/* ─── DELIVERY ADDRESS INPUT ─── */}
-          {orderType === 'delivery' && (
-            <div className="mb-6 pb-6 border-b border-[#262626]">
-              <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
-              <input
-                type="text"
-                value={deliveryAddress}
-                onChange={(e) => handleAddressChange(e.target.value)}
-                placeholder="e.g., Ikoyi, Lagos or Flat 12B, Victoria Island"
-                className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              />
-              <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mt-4 mb-2">Contact Phone for Rider</label>
-              <input
-                type="tel"
-                value={deliveryPhone}
-                onChange={(e) => setDeliveryPhone(e.target.value)}
-                placeholder="08012345678"
-                maxLength={11}
-                className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              />
-              {calculating && (
-                <p className="text-[0.75rem] text-[#F5C300] mt-2 font-semibold">🔄 Calculating delivery fee...</p>
-              )}
-              {deliveryData && deliveryFee > 0 && (
-                <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[#A0A0A0]">📍 Distance</span>
-                    <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
-                  </div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[#A0A0A0]">🚚 Delivery Fee</span>
-                    <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
-                    <span className="text-[#A0A0A0]">⏱️ Est. Time</span>
-                    <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Special Instructions */}
-          <div className="mb-5">
-            <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">
-              📝 Special Instructions <span className="text-[#555] normal-case font-normal">(optional)</span>
-            </label>
-            <textarea
-              value={orderNotes}
-              onChange={e => setOrderNotes(e.target.value)}
-              placeholder="e.g. No coleslaw, extra spicy, ring doorbell twice…"
-              rows={2}
-              maxLength={200}
-              className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3 text-white outline-none focus:border-[#F5C300] text-[0.875rem] resize-none"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            />
-          </div>
-
-          {/* Promo Code */}
-          {sessionUser && (
-            <div className="mb-4">
-              <PromoCodeInput
-                userId={sessionUser.id}
-                subtotal={subtotal}
-                onApplied={(discount, promo) => { setPromoDiscount(discount); setAppliedPromo(promo); }}
-                onRemoved={() => { setPromoDiscount(0); setAppliedPromo(null); }}
-              />
-            </div>
-          )}
-
-          {/* Amount Display */}
-          <div className="bg-[#161616] rounded-[12px] p-4 mb-6 flex flex-col gap-3 border border-[#262626]">
-            {orderType === 'delivery' && deliveryFee > 0 && (
-              <>
-                <div className="flex justify-between items-center">
-                  <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Food</span>
-                  <span className="text-[0.9rem] text-white font-semibold">₦{subtotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Delivery</span>
-                  <span className="text-[0.9rem] text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
-                </div>
-                <div className="border-t border-[#262626]" />
-              </>
-            )}
-            {promoDiscount > 0 && (
-              <div className="flex justify-between items-center">
-                <span className="text-[0.75rem] text-[#22C55E] font-semibold">Promo Discount</span>
-                <span className="text-[0.9rem] text-[#22C55E] font-semibold">−₦{promoDiscount.toLocaleString()}</span>
-              </div>
-            )}
-            <div className="flex justify-between items-center">
-              <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Total Payable</span>
-              <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#F5C300', letterSpacing: '1px' }}>₦{Math.max(0, total).toLocaleString()}</span>
-            </div>
-          </div>
-
-          {/* Payment Method Selection */}
-          <div className="flex gap-3 mb-6 overflow-x-auto no-scrollbar">
-            {(['wallet', 'paystack', 'transfer'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setPayMethod(m)}
-                className={`flex-1 min-w-[110px] py-3.5 px-2 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all duration-200 text-center ${payMethod === m ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C] shadow-[0_0_15px_rgba(232,25,44,0.2)]' : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'}`}
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              >
-                {m === 'wallet' ? '💰 Wallet' : m === 'paystack' ? '💳 Card' : '🏦 Transfer'}
-              </button>
-            ))}
-          </div>
-
-          {/* Wallet Payment */}
-          {payMethod === 'wallet' && (
-            <div>
-              <div className="bg-[#161616] rounded-[12px] p-4 mb-3 flex justify-between items-center border border-[#262626]">
-                <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Current Balance</span>
-                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', letterSpacing: '1px' }}>₦{(sessionUser?.wallet ?? 0).toLocaleString()}</span>
-              </div>
-              {sessionUser && sessionUser.wallet < total && (
-                <p className="text-[0.75rem] text-[#E8192C] text-center mb-3 font-semibold">Insufficient wallet balance. Top up or select another method.</p>
-              )}
-              <button
-                onClick={payWithWallet}
-                disabled={!sessionUser || sessionUser.wallet < total || isSubmitting}
-                className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 shadow-[0_4px_15px_rgba(232,25,44,0.3)] hover:bg-[#FF2E43] hover:-translate-y-px disabled:opacity-50 disabled:pointer-events-none"
-                style={{ fontFamily: "'Bebas Neue', sans-serif" }}
-              >
-                {isSubmitting ? 'PROCESSING...' : 'PAY FROM WALLET →'}
-              </button>
-            </div>
-          )}
-
-          {/* Paystack */}
-          {payMethod === 'paystack' && (
-            <div>
-              <button
-                onClick={initiatePaystack}
-                disabled={isSubmitting}
-                className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 shadow-[0_4px_15px_rgba(232,25,44,0.3)] hover:bg-[#FF2E43] hover:-translate-y-px disabled:opacity-50"
-                style={{ fontFamily: "'Bebas Neue', sans-serif" }}
-              >
-                {isSubmitting ? 'PROCESSING...' : 'PAY WITH PAYSTACK →'}
-              </button>
-              <p className="text-[0.75rem] text-[#A0A0A0] text-center font-medium mt-3">
-                🔒 Secured by Paystack – Cards, Bank Transfers, USSD
-              </p>
-            </div>
-          )}
-
-          {/* Bank Transfer */}
-          {payMethod === 'transfer' && (
-            <div>
-              <div className="bg-[#161616] p-4 rounded-[10px] mb-4 text-[0.9rem] text-center">
-                Transfer exactly <strong className="text-[#F5C300]">₦{total.toLocaleString()}</strong> to:<br /><br />
-                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.4rem', letterSpacing: '1px', color: '#fff' }}>0123456789</span><br />
-                Access Bank · Treats by Foodician
-                <p className="text-[0.7rem] text-yellow-400 mt-3">
-                  ⚠️ Your order will be prepared only after the restaurant verifies the payment. This may take time.
-                </p>
-              </div>
+          {/* ── Scrollable body ── */}
+          <div
+            className="flex-1 overflow-y-auto px-5 no-scrollbar"
+            style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}
+          >
+            {/* ─── DELIVERY / PICKUP TOGGLE ─── */}
+            <div className="flex gap-2 mt-5 mb-5">
               <button
                 onClick={() => {
-                  if (confirm('Have you made the exact transfer? The restaurant will verify before cooking. Click OK only if you have paid.')) {
-                    finaliseOrder();
-                  }
+                  setOrderType('pickup');
+                  setDeliveryAddress('');
+                  setDeliveryFee(0);
+                  setEstimatedTime(0);
+                  setDeliveryData(null);
                 }}
-                disabled={isSubmitting}
-                className="w-full bg-[#22C55E] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 hover:opacity-90 disabled:opacity-50"
-                style={{ fontFamily: "'Bebas Neue', sans-serif" }}
+                className={`flex-1 py-3 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                  orderType === 'pickup'
+                    ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C]'
+                    : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'
+                }`}
+                style={{ fontFamily: "'DM Sans', sans-serif" }}
               >
-                {isSubmitting ? 'PROCESSING...' : 'I HAVE COMPLETED THE TRANSFER →'}
+                <Store size={15} /> Pickup
+              </button>
+              <button
+                onClick={() => setOrderType('delivery')}
+                className={`flex-1 py-3 rounded-[10px] border text-[0.8rem] font-semibold cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                  orderType === 'delivery'
+                    ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C]'
+                    : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'
+                }`}
+                style={{ fontFamily: "'DM Sans', sans-serif" }}
+              >
+                <Bike size={15} /> Delivery
               </button>
             </div>
-          )}
+
+            {/* ─── DELIVERY ADDRESS INPUT ─── */}
+            {orderType === 'delivery' && (
+              <div className="mb-5 pb-5 border-b border-[#262626]">
+                <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
+                <input
+                  type="text"
+                  value={deliveryAddress}
+                  onChange={(e) => handleAddressChange(e.target.value)}
+                  placeholder="e.g., Ikoyi, Lagos or Flat 12B, Victoria Island"
+                  className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                  style={{ fontFamily: "'DM Sans', sans-serif" }}
+                />
+                <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mt-4 mb-2">Contact Phone for Rider</label>
+                <input
+                  type="tel"
+                  value={deliveryPhone}
+                  onChange={(e) => setDeliveryPhone(e.target.value)}
+                  placeholder="08012345678"
+                  maxLength={11}
+                  className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                  style={{ fontFamily: "'DM Sans', sans-serif" }}
+                />
+                {calculating && (
+                  <p className="text-[0.75rem] text-[#F5C300] mt-2 font-semibold">Calculating delivery fee…</p>
+                )}
+                {deliveryData && deliveryFee > 0 && (
+                  <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[#A0A0A0]">📍 Distance</span>
+                      <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
+                    </div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[#A0A0A0]">🚚 Delivery Fee</span>
+                      <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
+                      <span className="text-[#A0A0A0]">⏱️ Est. Time</span>
+                      <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Special Instructions */}
+            <div className="mb-5">
+              <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2 flex items-center gap-1.5">
+                <NotebookPen size={13} /> Special Instructions <span className="text-[#555] normal-case font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={orderNotes}
+                onChange={e => setOrderNotes(e.target.value)}
+                placeholder="e.g. No coleslaw, extra spicy, ring doorbell twice…"
+                rows={2}
+                maxLength={200}
+                className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3 text-white outline-none focus:border-[#F5C300] text-[0.875rem] resize-none"
+                style={{ fontFamily: "'DM Sans', sans-serif" }}
+              />
+            </div>
+
+            {/* Promo Code */}
+            {sessionUser && (
+              <div className="mb-4">
+                <PromoCodeInput
+                  userId={sessionUser.id}
+                  subtotal={subtotal}
+                  onApplied={(discount, promo) => { setPromoDiscount(discount); setAppliedPromo(promo); }}
+                  onRemoved={() => { setPromoDiscount(0); setAppliedPromo(null); }}
+                />
+              </div>
+            )}
+
+            {/* Amount Display */}
+            <div className="bg-[#161616] rounded-[12px] p-4 mb-5 flex flex-col gap-3 border border-[#262626]">
+              {orderType === 'delivery' && deliveryFee > 0 && (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Food</span>
+                    <span className="text-[0.9rem] text-white font-semibold">₦{subtotal.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Delivery</span>
+                    <span className="text-[0.9rem] text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                  </div>
+                  <div className="border-t border-[#262626]" />
+                </>
+              )}
+              {promoDiscount > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-[0.75rem] text-[#22C55E] font-semibold">Promo Discount</span>
+                  <span className="text-[0.9rem] text-[#22C55E] font-semibold">−₦{promoDiscount.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center">
+                <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Total Payable</span>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#F5C300', letterSpacing: '1px' }}>₦{Math.max(0, total).toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Payment Method Selection */}
+            <div className="flex gap-3 mb-5 overflow-x-auto no-scrollbar">
+              {(['wallet', 'paystack', 'transfer'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPayMethod(m)}
+                  className={`flex-1 min-w-[100px] py-3 px-2 rounded-[10px] border text-[0.78rem] font-semibold cursor-pointer transition-all duration-200 flex flex-col items-center gap-1.5 ${payMethod === m ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C] shadow-[0_0_15px_rgba(232,25,44,0.2)]' : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'}`}
+                  style={{ fontFamily: "'DM Sans', sans-serif" }}
+                >
+                  {m === 'wallet' ? <><Wallet size={16} /> Wallet</> : m === 'paystack' ? <><CreditCard size={16} /> Card</> : <><Landmark size={16} /> Transfer</>}
+                </button>
+              ))}
+            </div>
+
+            {/* Wallet Payment */}
+            {payMethod === 'wallet' && (
+              <div>
+                <div className="bg-[#161616] rounded-[12px] p-4 mb-3 flex justify-between items-center border border-[#262626]">
+                  <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Current Balance</span>
+                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', letterSpacing: '1px' }}>₦{(sessionUser?.wallet ?? 0).toLocaleString()}</span>
+                </div>
+                {sessionUser && sessionUser.wallet < total && (
+                  <p className="text-[0.75rem] text-[#E8192C] text-center mb-3 font-semibold">Insufficient wallet balance. Top up or select another method.</p>
+                )}
+                <button
+                  onClick={payWithWallet}
+                  disabled={!sessionUser || sessionUser.wallet < total || isSubmitting}
+                  className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 shadow-[0_4px_15px_rgba(232,25,44,0.3)] hover:bg-[#FF2E43] hover:-translate-y-px disabled:opacity-50 disabled:pointer-events-none"
+                  style={{ fontFamily: "'Bebas Neue', sans-serif" }}
+                >
+                  {isSubmitting ? 'PROCESSING...' : 'PAY FROM WALLET →'}
+                </button>
+              </div>
+            )}
+
+            {/* Paystack */}
+            {payMethod === 'paystack' && (
+              <div>
+                <button
+                  onClick={initiatePaystack}
+                  disabled={isSubmitting}
+                  className="w-full bg-[#E8192C] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 shadow-[0_4px_15px_rgba(232,25,44,0.3)] hover:bg-[#FF2E43] hover:-translate-y-px disabled:opacity-50"
+                  style={{ fontFamily: "'Bebas Neue', sans-serif" }}
+                >
+                  {isSubmitting ? 'PROCESSING...' : 'PAY WITH PAYSTACK →'}
+                </button>
+                <p className="text-[0.75rem] text-[#A0A0A0] text-center font-medium mt-3">
+                  🔒 Secured by Paystack – Cards, Bank Transfers, USSD
+                </p>
+              </div>
+            )}
+
+            {/* Bank Transfer */}
+            {payMethod === 'transfer' && (
+              <div>
+                <div className="bg-[#161616] p-4 rounded-[10px] mb-4 text-[0.9rem] text-center">
+                  Transfer exactly <strong className="text-[#F5C300]">₦{total.toLocaleString()}</strong> to:<br /><br />
+                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.4rem', letterSpacing: '1px', color: '#fff' }}>0123456789</span><br />
+                  Access Bank · Treats by Foodician
+                  <p className="text-[0.7rem] text-yellow-400 mt-3">
+                    ⚠️ Your order will be prepared only after the restaurant verifies the payment. This may take time.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (confirm('Have you made the exact transfer? The restaurant will verify before cooking. Click OK only if you have paid.')) {
+                      finaliseOrder();
+                    }
+                  }}
+                  disabled={isSubmitting}
+                  className="w-full bg-[#22C55E] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 hover:opacity-90 disabled:opacity-50"
+                  style={{ fontFamily: "'Bebas Neue', sans-serif" }}
+                >
+                  {isSubmitting ? 'PROCESSING...' : 'I HAVE COMPLETED THE TRANSFER →'}
+                </button>
+              </div>
+            )}
+          </div>{/* end scrollable body */}
         </div>
       </div>
 

@@ -48,7 +48,7 @@ export default function RootLayout({
           <ShopProvider>
             <FavoritesProvider>
               <div className="flex flex-col h-full w-full bg-[#050505]">
-                <main className="flex-1 overflow-y-auto no-scrollbar pb-[80px] page-safe-pad animate-slide-in-up">
+                <main className="flex-1 overflow-y-auto no-scrollbar animate-slide-in-up" style={{ paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}>
                   {children}
                 </main>
                 <BottomNav />

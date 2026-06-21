@@ -102,7 +102,8 @@ export default function ChatWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.95 }}
             onClick={handleOpen}
-            className="fixed bottom-[5rem] right-4 z-50 bg-[#0F0F0F] border border-[#E8192C]/30 text-white rounded-2xl px-4 py-3 max-w-[260px] shadow-2xl text-left"
+            className="fixed right-4 z-[90] bg-[#0F0F0F] border border-[#E8192C]/30 text-white rounded-2xl px-4 py-3 max-w-[260px] shadow-2xl text-left"
+          style={{ bottom: 'calc(110px + env(safe-area-inset-bottom, 0px))' }}
           >
             <p className="text-[10px] font-bold text-[#E8192C] mb-0.5 uppercase tracking-wider">Support</p>
             <p className="text-sm leading-snug text-[#F5F5F5]">{toast.text}{toast.text.length >= 80 ? "…" : ""}</p>
@@ -128,7 +129,8 @@ export default function ChatWidget() {
       <motion.button
         onClick={isOpen ? () => setIsOpen(false) : handleOpen}
         whileTap={{ scale: 0.92 }}
-        className="fixed bottom-[5.5rem] right-4 z-40 w-12 h-12 rounded-full bg-[#E8192C] text-white shadow-lg shadow-[#E8192C]/30 flex items-center justify-center hover:bg-[#FF2E43] transition-colors"
+        className="fixed right-4 z-[90] w-12 h-12 rounded-full bg-[#E8192C] text-white shadow-lg shadow-[#E8192C]/30 flex items-center justify-center hover:bg-[#FF2E43] transition-colors"
+        style={{ bottom: 'calc(82px + env(safe-area-inset-bottom, 0px))' }}
         aria-label={isOpen ? "Close chat" : "Open support chat"}
       >
         <AnimatePresence mode="wait" initial={false}>
