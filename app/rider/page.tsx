@@ -17,6 +17,7 @@ type DeliveryOrder = {
   delivery_fee: number | null;
   status: string;
   created_at: string;
+  order_notes: string | null;
 };
 
 function timeAgo(date: string) {
@@ -28,20 +29,24 @@ function timeAgo(date: string) {
 }
 
 const STATUS_COLOUR: Record<string, string> = {
-  Confirmed:        '#F5C300',
-  Ready:            '#22C55E',
+  Ready:              '#22C55E',
   'Out for Delivery': '#60a5fa',
 };
 
 export default function RiderPage() {
-  const router = useRouter();
+  const router      = useRouter();
   const sessionUser = useAppStore(s => s.sessionUser);
-  const [orders, setOrders] = useState<DeliveryOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState<number | null>(null);
-  const [role, setRole] = useState<string>('');
+  const [orders,    setOrders]    = useState<DeliveryOrder[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [updating,  setUpdating]  = useState<number | null>(null);
+  const [role,      setRole]      = useState<string>('');
 
-  // Fetch the rider's actual role from their profile
+  // Code verification modal
+  const [codeModal,      setCodeModal]      = useState<DeliveryOrder | null>(null);
+  const [codeInput,      setCodeInput]      = useState('');
+  const [codeError,      setCodeError]      = useState('');
+  const [verifying,      setVerifying]      = useState(false);
+
   useEffect(() => {
     if (!sessionUser?.id) return;
     supabase.from('profiles').select('role').eq('id', sessionUser.id).single()
@@ -63,17 +68,39 @@ export default function RiderPage() {
     return () => { channel.unsubscribe(); };
   }, [fetchOrders]);
 
-  const advance = async (order: DeliveryOrder) => {
-    const next = order.status === 'Confirmed' || order.status === 'Ready'
-      ? 'Out for Delivery'
-      : 'Completed';
+  const pickUp = async (order: DeliveryOrder) => {
     setUpdating(order.id);
     await fetch('/api/rider/orders', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: order.id, status: next }),
+      body: JSON.stringify({ id: order.id, status: 'Out for Delivery' }),
     });
     setUpdating(null);
+    fetchOrders();
+  };
+
+  const openCodeModal = (order: DeliveryOrder) => {
+    setCodeModal(order);
+    setCodeInput('');
+    setCodeError('');
+  };
+
+  const confirmDelivery = async () => {
+    if (!codeModal) return;
+    const entered = codeInput.trim().toUpperCase();
+    const expected = codeModal.verification_code?.toUpperCase();
+    if (entered !== expected) {
+      setCodeError('Code does not match. Ask the customer for their order code.');
+      return;
+    }
+    setVerifying(true);
+    await fetch('/api/rider/orders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: codeModal.id, status: 'Delivered' }),
+    });
+    setVerifying(false);
+    setCodeModal(null);
     fetchOrders();
   };
 
@@ -91,14 +118,14 @@ export default function RiderPage() {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: '2rem' }}>
         <div style={{ fontSize: '2.5rem' }}>🚫</div>
         <p style={{ color: '#E8192C', fontWeight: 700 }}>Access Denied</p>
-        <p style={{ color: '#A0A0A0', textAlign: 'center' }}>This page is only for assigned riders. Contact admin to grant rider access.</p>
+        <p style={{ color: '#A0A0A0', textAlign: 'center' }}>This page is only for assigned riders.</p>
         <button onClick={() => router.push('/')} style={{ background: '#E8192C', color: '#fff', border: 'none', padding: '0.6rem 1.5rem', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>← Back to App</button>
       </div>
     );
   }
 
-  const active = orders.filter(o => o.status !== 'Completed');
-  const done   = orders.filter(o => o.status === 'Completed');
+  const active = orders.filter(o => o.status !== 'Delivered' && o.status !== 'Completed');
+  const done   = orders.filter(o => o.status === 'Delivered' || o.status === 'Completed');
 
   return (
     <div style={{ minHeight: '100vh', background: '#050505', color: '#F5F5F5', fontFamily: "'DM Sans', sans-serif" }}>
@@ -116,8 +143,8 @@ export default function RiderPage() {
           <button onClick={fetchOrders} style={{ padding: '0.3rem 0.75rem', borderRadius: 6, background: '#161616', border: '1px solid #262626', color: '#A0A0A0', cursor: 'pointer', fontSize: '0.78rem' }}>
             ↻ Refresh
           </button>
-          <button onClick={() => router.push('/')} style={{ padding: '0.3rem 0.75rem', borderRadius: 6, background: '#E8192C', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.78rem' }}>
-            ← App
+          <button onClick={() => router.push('/admin')} style={{ padding: '0.3rem 0.75rem', borderRadius: 6, background: '#161616', border: '1px solid #F5C300', color: '#F5C300', cursor: 'pointer', fontWeight: 600, fontSize: '0.78rem' }}>
+            ⚙️ Admin
           </button>
         </div>
       </div>
@@ -132,7 +159,7 @@ export default function RiderPage() {
           <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#A0A0A0' }}>
             <div style={{ fontSize: '3rem', marginBottom: 12 }}>🛵</div>
             <p style={{ fontSize: '1rem', fontWeight: 600, color: '#F5F5F5', marginBottom: 4 }}>No active deliveries</p>
-            <p style={{ fontSize: '0.85rem' }}>Orders placed for delivery will appear here when the kitchen marks them ready.</p>
+            <p style={{ fontSize: '0.85rem' }}>Delivery orders marked Ready by the kitchen will appear here.</p>
           </div>
         ) : (
           <>
@@ -152,9 +179,9 @@ export default function RiderPage() {
                   </div>
 
                   <div style={{ padding: '1rem' }}>
-                    {/* Customer contact block */}
+                    {/* Customer contact */}
                     <div style={{ background: 'rgba(245,195,0,0.06)', border: '1px solid rgba(245,195,0,0.15)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem' }}>
-                      <div style={{ fontSize: '0.65rem', color: '#F5C300', fontWeight: 700, letterSpacing: 2, marginBottom: 8, textTransform: 'uppercase' }}>Customer Contact</div>
+                      <div style={{ fontSize: '0.65rem', color: '#F5C300', fontWeight: 700, letterSpacing: 2, marginBottom: 8, textTransform: 'uppercase' }}>Customer</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: '1rem' }}>👤</span>
@@ -162,14 +189,12 @@ export default function RiderPage() {
                         </div>
                         {order.customer_phone ? (
                           <a href={`tel:${order.customer_phone}`} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#22C55E', textDecoration: 'none', fontWeight: 600, fontSize: '0.9rem' }}>
-                            <span style={{ fontSize: '1rem' }}>📞</span>
-                            {order.customer_phone}
-                            <span style={{ fontSize: '0.7rem', background: 'rgba(34,197,94,0.15)', border: '1px solid #22C55E', borderRadius: 4, padding: '0.1rem 0.4rem', color: '#22C55E' }}>TAP TO CALL</span>
+                            <span>📞</span>{order.customer_phone}
+                            <span style={{ fontSize: '0.7rem', background: 'rgba(34,197,94,0.15)', border: '1px solid #22C55E', borderRadius: 4, padding: '0.1rem 0.4rem' }}>TAP TO CALL</span>
                           </a>
                         ) : (
                           <a href={`mailto:${order.user_email}`} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#60a5fa', textDecoration: 'none', fontSize: '0.85rem' }}>
-                            <span style={{ fontSize: '1rem' }}>✉️</span>
-                            {order.user_email}
+                            <span>✉️</span>{order.user_email}
                           </a>
                         )}
                       </div>
@@ -180,26 +205,31 @@ export default function RiderPage() {
                       <div style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem' }}>
                         <div style={{ fontSize: '0.65rem', color: '#60a5fa', fontWeight: 700, letterSpacing: 2, marginBottom: 6, textTransform: 'uppercase' }}>Delivery Address</div>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                          <span style={{ fontSize: '1rem', flexShrink: 0 }}>📍</span>
-                          <span style={{ fontSize: '0.9rem', color: '#F5F5F5', lineHeight: 1.5 }}>{order.delivery_address}</span>
+                          <span style={{ flexShrink: 0 }}>📍</span>
+                          <span style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{order.delivery_address}</span>
                         </div>
-                        <a
-                          href={`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`}
-                          target="_blank" rel="noopener noreferrer"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: '0.75rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
-                        >
+                        <a href={`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`} target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: '0.75rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}>
                           🗺 Open in Google Maps →
                         </a>
                       </div>
                     )}
 
+                    {/* Customer notes */}
+                    {order.order_notes && (
+                      <div style={{ background: 'rgba(245,195,0,0.05)', border: '1px solid rgba(245,195,0,0.2)', borderRadius: 10, padding: '0.75rem', marginBottom: '0.875rem' }}>
+                        <div style={{ fontSize: '0.65rem', color: '#F5C300', fontWeight: 700, letterSpacing: 2, marginBottom: 4, textTransform: 'uppercase' }}>📝 Customer Note</div>
+                        <p style={{ fontSize: '0.875rem', color: '#F5F5F5', margin: 0 }}>{order.order_notes}</p>
+                      </div>
+                    )}
+
                     {/* Items */}
                     <div style={{ fontSize: '0.8rem', color: '#A0A0A0', marginBottom: '0.875rem', background: '#161616', borderRadius: 8, padding: '0.625rem 0.875rem' }}>
-                      {(order.items ?? []).map((item, i) => <div key={i}>{item}</div>)}
+                      {(order.items ?? []).map((item, i) => <div key={i}>• {item}</div>)}
                     </div>
 
                     {/* Total + action */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <div>
                         <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.4rem', color: '#F5C300' }}>
                           ₦{order.total_amount?.toLocaleString()}
@@ -208,19 +238,23 @@ export default function RiderPage() {
                           <div style={{ fontSize: '0.72rem', color: '#555' }}>incl. ₦{order.delivery_fee.toLocaleString()} delivery fee</div>
                         )}
                       </div>
-                      <button
-                        onClick={() => advance(order)}
-                        disabled={updating === order.id}
-                        style={{
-                          padding: '0.6rem 1.25rem', borderRadius: 10, border: 'none', cursor: updating === order.id ? 'not-allowed' : 'pointer',
-                          fontWeight: 700, fontSize: '0.85rem', opacity: updating === order.id ? 0.6 : 1,
-                          background: order.status === 'Out for Delivery' ? '#22C55E' : '#E8192C',
-                          color: '#fff',
-                        }}
-                      >
-                        {updating === order.id ? '…' :
-                          order.status === 'Out for Delivery' ? '✓ Mark Delivered' : '🛵 Pick Up & Go'}
-                      </button>
+                      {order.status === 'Ready' && (
+                        <button
+                          onClick={() => pickUp(order)}
+                          disabled={updating === order.id}
+                          style={{ padding: '0.6rem 1.25rem', borderRadius: 10, border: 'none', cursor: updating === order.id ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.85rem', opacity: updating === order.id ? 0.6 : 1, background: '#E8192C', color: '#fff' }}
+                        >
+                          {updating === order.id ? '…' : '🛵 Pick Up & Go'}
+                        </button>
+                      )}
+                      {order.status === 'Out for Delivery' && (
+                        <button
+                          onClick={() => openCodeModal(order)}
+                          style={{ padding: '0.6rem 1.25rem', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', background: '#22C55E', color: '#fff' }}
+                        >
+                          ✓ Confirm Delivery
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -229,7 +263,7 @@ export default function RiderPage() {
           </>
         )}
 
-        {/* Completed today */}
+        {/* Delivered today */}
         {done.length > 0 && (
           <div>
             <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', color: '#555', marginBottom: '0.75rem' }}>
@@ -240,7 +274,7 @@ export default function RiderPage() {
                 <div key={order.id} style={{ background: '#0C0C0C', border: '1px solid #111', borderRadius: 10, padding: '0.75rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.5 }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{order.user_name}</div>
-                    <div style={{ fontSize: '0.72rem', color: '#555', marginTop: 2 }}>{order.delivery_address?.slice(0, 40)}…</div>
+                    <div style={{ fontSize: '0.72rem', color: '#555', marginTop: 2 }}>{order.delivery_address?.slice(0, 45)}…</div>
                   </div>
                   <div style={{ fontFamily: "'Bebas Neue', sans-serif", color: '#22C55E', fontSize: '1.1rem' }}>✓ Delivered</div>
                 </div>
@@ -249,6 +283,45 @@ export default function RiderPage() {
           </div>
         )}
       </div>
+
+      {/* Code Verification Modal */}
+      {codeModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: '#0F0F0F', border: '1px solid #262626', borderRadius: 20, padding: '2rem', maxWidth: 360, width: '100%', textAlign: 'center' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🔐</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.5rem', letterSpacing: 2, marginBottom: 8 }}>Confirm Delivery</div>
+            <p style={{ color: '#A0A0A0', fontSize: '0.85rem', marginBottom: 20, lineHeight: 1.5 }}>
+              Ask <strong style={{ color: '#F5F5F5' }}>{codeModal.user_name}</strong> for their order code and enter it below to complete the delivery.
+            </p>
+            <input
+              type="text"
+              value={codeInput}
+              onChange={e => { setCodeInput(e.target.value.toUpperCase()); setCodeError(''); }}
+              placeholder="Enter customer code"
+              maxLength={8}
+              autoFocus
+              style={{ width: '100%', background: '#161616', border: `1px solid ${codeError ? '#E8192C' : '#262626'}`, borderRadius: 10, padding: '0.875rem 1rem', color: '#F5F5F5', fontSize: '1.5rem', fontFamily: "'Bebas Neue', sans-serif", letterSpacing: 4, textAlign: 'center', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }}
+            />
+            {codeError && <p style={{ color: '#E8192C', fontSize: '0.78rem', marginBottom: 12 }}>{codeError}</p>}
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button
+                onClick={() => setCodeModal(null)}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: 10, background: '#161616', border: '1px solid #262626', color: '#A0A0A0', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelivery}
+                disabled={verifying || codeInput.trim().length < 3}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: 10, background: '#22C55E', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 700, opacity: verifying ? 0.6 : 1 }}
+              >
+                {verifying ? 'Confirming…' : 'Confirm ✓'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );

@@ -226,7 +226,9 @@ export default function ProfilePage() {
 
   const handleLogout = () => { logout(); router.push('/'); };
 
-  const isAdmin = sessionUser?.email === ADMIN_EMAIL;
+  const isAdmin   = sessionUser?.email === ADMIN_EMAIL || sessionUser?.role === 'admin';
+  const isKitchen = sessionUser?.role === 'kitchen';
+  const isRider   = sessionUser?.role === 'rider';
   const initial = sessionUser?.name?.charAt(0).toUpperCase() ?? '?';
   const name    = sessionUser?.name  ?? 'Foodician User';
   const email   = sessionUser?.email ?? '';
@@ -245,23 +247,61 @@ export default function ProfilePage() {
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.35rem', letterSpacing: 1, color: '#fff', textTransform: 'uppercase', lineHeight: 1 }}>
               {name}
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#A0A0A0', marginTop: 3 }}>{email}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+              <div style={{ fontSize: '0.8rem', color: '#A0A0A0' }}>{email}</div>
+              {sessionUser?.role && sessionUser.role !== 'user' && (
+                <span style={{
+                  fontSize: '0.6rem', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', padding: '0.15rem 0.45rem', borderRadius: 4,
+                  background: sessionUser.role === 'admin' ? 'rgba(232,25,44,0.15)' : sessionUser.role === 'kitchen' ? 'rgba(245,195,0,0.15)' : 'rgba(96,165,250,0.15)',
+                  color: sessionUser.role === 'admin' ? '#E8192C' : sessionUser.role === 'kitchen' ? '#F5C300' : '#60a5fa',
+                  border: `1px solid ${sessionUser.role === 'admin' ? 'rgba(232,25,44,0.3)' : sessionUser.role === 'kitchen' ? 'rgba(245,195,0,0.3)' : 'rgba(96,165,250,0.3)'}`,
+                }}>
+                  {sessionUser.role === 'admin' ? '⚙️ Admin' : sessionUser.role === 'kitchen' ? '🍳 Kitchen' : '🛵 Rider'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Admin Dashboard – only for admin email */}
-        {isAdmin && (
+        {/* Role-based work dashboards */}
+        {(isAdmin || isKitchen || isRider) && (
           <div style={{ borderBottom: '1px solid #1a1a1a' }}>
-            <Link href="/admin" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem', textDecoration: 'none' }}>
-              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(232,25,44,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E8192C', flexShrink: 0 }}>
-                <Shield size={18} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#F5F5F5' }}>Admin Dashboard</div>
-                <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginTop: 2 }}>Manage orders, products &amp; settings</div>
-              </div>
-              <ChevronRight size={16} color="#444" />
-            </Link>
+            {isAdmin && (
+              <Link href="/admin" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem', textDecoration: 'none', borderBottom: '1px solid #111' }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(232,25,44,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E8192C', flexShrink: 0 }}>
+                  <Shield size={18} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#F5F5F5' }}>Admin Dashboard</div>
+                  <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginTop: 2 }}>Manage orders, products &amp; settings</div>
+                </div>
+                <ChevronRight size={16} color="#444" />
+              </Link>
+            )}
+            {(isAdmin || isKitchen) && (
+              <Link href="/kitchen" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem', textDecoration: 'none', borderBottom: '1px solid #111' }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(245,195,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1.1rem' }}>
+                  🍳
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#F5F5F5' }}>Kitchen Display</div>
+                  <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginTop: 2 }}>View and manage active orders</div>
+                </div>
+                <ChevronRight size={16} color="#444" />
+              </Link>
+            )}
+            {(isAdmin || isRider) && (
+              <Link href="/rider" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem', textDecoration: 'none' }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1.1rem' }}>
+                  🛵
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#F5F5F5' }}>Rider Dashboard</div>
+                  <div style={{ fontSize: '0.75rem', color: '#A0A0A0', marginTop: 2 }}>View delivery orders &amp; confirm deliveries</div>
+                </div>
+                <ChevronRight size={16} color="#444" />
+              </Link>
+            )}
           </div>
         )}
 

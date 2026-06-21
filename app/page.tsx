@@ -254,6 +254,9 @@ function CartSheet({
     total: number;
   } | null>(null);
 
+  // ─── ORDER NOTES ─────────────────────────────────────────────────────────
+  const [orderNotes, setOrderNotes] = useState('');
+
   // ─── DELIVERY STATE ───────────────────────────────────────────────────────
   const [orderType, setOrderType] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -399,6 +402,7 @@ function CartSheet({
       orderData.delivery_fee = deliveryFee;
       if (deliveryPhone.trim()) orderData.customer_phone = deliveryPhone.trim();
     }
+    if (orderNotes.trim()) orderData.order_notes = orderNotes.trim();
 
     addOrder(orderData as Parameters<typeof addOrder>[0]);
     sendWhatsAppNotification(code, itemsArray, total);
@@ -670,6 +674,22 @@ function CartSheet({
             </div>
           )}
 
+          {/* Special Instructions */}
+          <div className="mb-5">
+            <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">
+              📝 Special Instructions <span className="text-[#555] normal-case font-normal">(optional)</span>
+            </label>
+            <textarea
+              value={orderNotes}
+              onChange={e => setOrderNotes(e.target.value)}
+              placeholder="e.g. No coleslaw, extra spicy, ring doorbell twice…"
+              rows={2}
+              maxLength={200}
+              className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3 text-white outline-none focus:border-[#F5C300] text-[0.875rem] resize-none"
+              style={{ fontFamily: "'DM Sans', sans-serif" }}
+            />
+          </div>
+
           {/* Promo Code */}
           {sessionUser && (
             <div className="mb-4">
@@ -810,9 +830,16 @@ function CartSheet({
               <small style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '1rem', color: '#fff', fontWeight: 500 }}> remaining</small>
             </div>
           </div>
-          <div className="bg-[#161616] border border-[#262626] rounded-[12px] p-4 mb-5">
-            <div className="text-[0.65rem] text-[#A0A0A0] tracking-[1.5px] uppercase mb-1 font-bold">Verification Code</div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.2rem', letterSpacing: '4px', color: '#F5C300', lineHeight: 1 }}>{confirmCode}</div>
+          <div className={`rounded-[12px] p-4 mb-5 ${orderType === 'delivery' ? 'bg-[rgba(34,197,94,0.08)] border border-[rgba(34,197,94,0.3)]' : 'bg-[#161616] border border-[#262626]'}`}>
+            <div className="text-[0.65rem] tracking-[1.5px] uppercase mb-1 font-bold" style={{ color: orderType === 'delivery' ? '#22C55E' : '#A0A0A0' }}>
+              {orderType === 'delivery' ? '🔐 Your Delivery Code — Share with Rider' : 'Verification Code'}
+            </div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.4rem', letterSpacing: '6px', color: '#F5C300', lineHeight: 1 }}>{confirmCode}</div>
+            {orderType === 'delivery' && (
+              <p style={{ fontSize: '0.72rem', color: '#22C55E', marginTop: 6, lineHeight: 1.4 }}>
+                Show this code to your rider when they arrive. They must enter it to complete delivery.
+              </p>
+            )}
           </div>
           <button
             onClick={handlePrintReceipt}

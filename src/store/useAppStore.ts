@@ -30,6 +30,10 @@ export type Order = {
   customer: string;
   user_email?: string;
   payment_method?: string;
+  order_type?: string;
+  delivery_address?: string;
+  order_notes?: string;
+  user_name?: string;
 };
 
 export type SessionUser = {

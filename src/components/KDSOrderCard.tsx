@@ -13,19 +13,27 @@ interface KDSOrderCardProps {
     order_type?:      string;
     delivery_address?: string;
     user_name?:       string;
+    order_notes?:     string;
   };
   onAdvance: () => void;
   advancing: boolean;
 }
 
-const STATUS_NEXT: Record<string, { label: string; nextStatus: string; color: string }> = {
-  Confirmed: { label: "Mark Ready",     nextStatus: "Ready",     color: "bg-[#E8192C] text-white hover:bg-[#FF2E43]" },
-  Ready:     { label: "Mark Completed", nextStatus: "Completed", color: "bg-[#22C55E] text-white hover:bg-[#16a34a]" },
-};
+function getAction(status: string, orderType?: string): { label: string; color: string } | null {
+  if (orderType === 'delivery') {
+    if (status === 'Confirmed') return { label: "Start Preparing", color: "bg-[#F5C300] text-black hover:bg-yellow-400" };
+    if (status === 'Preparing') return { label: "Mark Ready ✓",   color: "bg-[#22C55E] text-white hover:bg-[#16a34a]" };
+    return null; // Ready+ handled by rider
+  }
+  if (status === 'Confirmed') return { label: "Mark Ready",     color: "bg-[#E8192C] text-white hover:bg-[#FF2E43]" };
+  if (status === 'Ready')     return { label: "Mark Completed", color: "bg-[#22C55E] text-white hover:bg-[#16a34a]" };
+  return null;
+}
 
 const STATUS_BADGE: Record<string, string> = {
-  Confirmed: "bg-[#F5C300]/10 text-[#F5C300] border-[#F5C300]/20",
-  Ready:     "bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20",
+  Confirmed:  "bg-[#F5C300]/10 text-[#F5C300] border-[#F5C300]/20",
+  Preparing:  "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  Ready:      "bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20",
 };
 
 function elapsedMinutes(isoTime: string): number {
@@ -33,9 +41,9 @@ function elapsedMinutes(isoTime: string): number {
 }
 
 export default function KDSOrderCard({ order, onAdvance, advancing }: KDSOrderCardProps) {
-  const elapsed = elapsedMinutes(order.time);
+  const elapsed  = elapsedMinutes(order.time);
   const isUrgent = elapsed > (order.mins + 5);
-  const action   = STATUS_NEXT[order.status];
+  const action   = getAction(order.status, order.order_type);
 
   return (
     <div className={`bg-[#0F0F0F] border rounded-2xl p-4 flex flex-col gap-3 transition-colors ${isUrgent ? "border-[#E8192C]/50" : "border-[#262626]"}`}>
@@ -69,11 +77,24 @@ export default function KDSOrderCard({ order, onAdvance, advancing }: KDSOrderCa
         </div>
       )}
 
+      {order.order_notes && (
+        <div className="bg-[#F5C300]/5 border border-[#F5C300]/20 rounded-lg px-3 py-2 text-xs">
+          <span className="text-[#F5C300] font-bold">📝 Note: </span>
+          <span className="text-[#F5F5F5]">{order.order_notes}</span>
+        </div>
+      )}
+
       <div className="space-y-1">
         {order.items.map((item, i) => (
           <p key={i} className="text-xs text-[#F5F5F5] leading-relaxed">• {item}</p>
         ))}
       </div>
+
+      {order.order_type === 'delivery' && order.status === 'Ready' && (
+        <div className="text-center text-xs text-[#22C55E] bg-[#22C55E]/5 border border-[#22C55E]/15 rounded-lg py-2">
+          ✅ Waiting for rider to pick up
+        </div>
+      )}
 
       {action && (
         <button

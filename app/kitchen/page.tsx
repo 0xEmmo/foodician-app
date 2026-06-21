@@ -2,21 +2,33 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChefHat, RefreshCw, ArrowLeft, Home } from "lucide-react";
+import { ChefHat, RefreshCw, ArrowLeft } from "lucide-react";
 import { supabase } from "@/src/lib/supabase";
 import { useAppStore, type Order } from "@/src/store/useAppStore";
 import KDSOrderCard from "@/src/components/KDSOrderCard";
 
-type ActiveOrder = Order & { id: number | string; order_type?: string; delivery_address?: string; user_name?: string };
-
-const STATUS_NEXT: Record<string, string> = {
-  Confirmed: "Ready",
-  Ready:     "Completed",
+type ActiveOrder = Order & {
+  id: number | string;
+  order_type?: string;
+  delivery_address?: string;
+  user_name?: string;
+  order_notes?: string;
 };
+
+function nextStatus(order: ActiveOrder): string | null {
+  if (order.order_type === 'delivery') {
+    if (order.status === 'Confirmed') return 'Preparing';
+    if (order.status === 'Preparing') return 'Ready';
+    return null; // rider handles beyond Ready
+  }
+  if (order.status === 'Confirmed') return 'Ready';
+  if (order.status === 'Ready')     return 'Completed';
+  return null;
+}
 
 export default function KitchenPage() {
   const sessionUser = useAppStore((s) => s.sessionUser);
-  const router = useRouter();
+  const router      = useRouter();
   const [orders,     setOrders]     = useState<ActiveOrder[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [advancing,  setAdvancing]  = useState<Record<string, boolean>>({});
@@ -26,7 +38,7 @@ export default function KitchenPage() {
     const { data } = await supabase
       .from("orders")
       .select("*")
-      .in("status", ["Confirmed", "Ready"])
+      .in("status", ["Confirmed", "Preparing", "Ready"])
       .order("created_at", { ascending: true });
     setOrders((data as ActiveOrder[]) ?? []);
     setLoading(false);
@@ -35,31 +47,47 @@ export default function KitchenPage() {
 
   useEffect(() => {
     fetchOrders();
-
     const channel = supabase
       .channel("kds-orders")
-      .on("postgres_changes", {
-        event: "*", schema: "public", table: "orders",
-      }, () => { fetchOrders(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => fetchOrders())
       .subscribe();
-
     return () => { channel.unsubscribe(); };
   }, [fetchOrders]);
 
   async function advanceStatus(order: ActiveOrder) {
-    const next = STATUS_NEXT[order.status];
+    const next = nextStatus(order);
     if (!next) return;
     setAdvancing((prev) => ({ ...prev, [String(order.id)]: true }));
-    await supabase
-      .from("orders")
-      .update({ status: next })
-      .eq("id", order.id);
+    await supabase.from("orders").update({ status: next }).eq("id", order.id);
     setAdvancing((prev) => ({ ...prev, [String(order.id)]: false }));
     fetchOrders();
   }
 
-  const confirmed = orders.filter((o) => o.status === "Confirmed");
-  const ready     = orders.filter((o) => o.status === "Ready");
+  function makeCard(order: ActiveOrder) {
+    return (
+      <KDSOrderCard
+        key={order.id}
+        order={{
+          id:               order.id!,
+          code:             order.code,
+          items:            order.items,
+          mins:             order.mins,
+          time:             order.time,
+          status:           order.status,
+          order_type:       order.order_type,
+          delivery_address: order.delivery_address,
+          user_name:        order.user_name,
+          order_notes:      order.order_notes,
+        }}
+        onAdvance={() => advanceStatus(order)}
+        advancing={advancing[String(order.id)] ?? false}
+      />
+    );
+  }
+
+  const confirmed  = orders.filter((o) => o.status === "Confirmed");
+  const preparing  = orders.filter((o) => o.status === "Preparing");
+  const ready      = orders.filter((o) => o.status === "Ready");
 
   if (!sessionUser) {
     return (
@@ -95,12 +123,6 @@ export default function KitchenPage() {
           >
             <ArrowLeft size={14} /> Admin
           </button>
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#E8192C] border-none text-white text-[0.8rem] font-semibold cursor-pointer"
-          >
-            <Home size={14} /> App
-          </button>
         </div>
       </div>
 
@@ -115,41 +137,36 @@ export default function KitchenPage() {
           <p className="text-sm text-[#A0A0A0]">No active orders right now.</p>
         </div>
       ) : (
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Confirmed column */}
+        <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Confirmed */}
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-full bg-[#F5C300]" />
               <h2 className="text-sm font-bold text-[#F5C300] uppercase tracking-widest">
-                Confirmed ({confirmed.length})
+                New Orders ({confirmed.length})
               </h2>
             </div>
             <div className="space-y-3">
-              {confirmed.map((order) => (
-                <KDSOrderCard
-                  key={order.id}
-                  order={{
-                    id:               order.id!,
-                    code:             order.code,
-                    items:            order.items,
-                    mins:             order.mins,
-                    time:             order.time,
-                    status:           order.status,
-                    order_type:       order.order_type,
-                    delivery_address: order.delivery_address,
-                    user_name:        order.user_name,
-                  }}
-                  onAdvance={() => advanceStatus(order)}
-                  advancing={advancing[String(order.id)] ?? false}
-                />
-              ))}
-              {confirmed.length === 0 && (
-                <p className="text-sm text-[#A0A0A0] text-center py-8">No confirmed orders</p>
-              )}
+              {confirmed.map(makeCard)}
+              {confirmed.length === 0 && <p className="text-sm text-[#A0A0A0] text-center py-8">No new orders</p>}
             </div>
           </div>
 
-          {/* Ready column */}
+          {/* Preparing */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-2 h-2 rounded-full bg-orange-400" />
+              <h2 className="text-sm font-bold text-orange-400 uppercase tracking-widest">
+                Preparing ({preparing.length})
+              </h2>
+            </div>
+            <div className="space-y-3">
+              {preparing.map(makeCard)}
+              {preparing.length === 0 && <p className="text-sm text-[#A0A0A0] text-center py-8">Nothing being prepared</p>}
+            </div>
+          </div>
+
+          {/* Ready */}
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
@@ -158,27 +175,8 @@ export default function KitchenPage() {
               </h2>
             </div>
             <div className="space-y-3">
-              {ready.map((order) => (
-                <KDSOrderCard
-                  key={order.id}
-                  order={{
-                    id:               order.id!,
-                    code:             order.code,
-                    items:            order.items,
-                    mins:             order.mins,
-                    time:             order.time,
-                    status:           order.status,
-                    order_type:       order.order_type,
-                    delivery_address: order.delivery_address,
-                    user_name:        order.user_name,
-                  }}
-                  onAdvance={() => advanceStatus(order)}
-                  advancing={advancing[String(order.id)] ?? false}
-                />
-              ))}
-              {ready.length === 0 && (
-                <p className="text-sm text-[#A0A0A0] text-center py-8">No orders ready yet</p>
-              )}
+              {ready.map(makeCard)}
+              {ready.length === 0 && <p className="text-sm text-[#A0A0A0] text-center py-8">No orders ready yet</p>}
             </div>
           </div>
         </div>

@@ -12,23 +12,32 @@ type Order = {
   user_name: string;
   verification_code: string;
   total_amount: number;
-  status: 'Confirmed' | 'Ready' | 'Cancelled' | 'Completed';
+  status: string;
   items: string[];
   payment_method?: string;
   order_type?: string;
+  delivery_address?: string;
+  order_notes?: string;
   created_at: string;
 };
 
 type RatingItem = { name: string; rating: number; comment: string };
 
-// ─── Order status timeline ────────────────────────────────────────
-const STEPS = [
-  { key: 'Confirmed', label: 'Confirmed', icon: CheckCircle },
-  { key: 'Ready',     label: 'Ready',     icon: Package },
-  { key: 'Completed', label: 'Collected', icon: CheckCircle },
-] as const;
+const PICKUP_STEPS = [
+  { key: 'Confirmed', label: 'Confirmed' },
+  { key: 'Ready',     label: 'Ready'     },
+  { key: 'Completed', label: 'Collected' },
+];
 
-function StatusTimeline({ status }: { status: Order['status'] }) {
+const DELIVERY_STEPS = [
+  { key: 'Confirmed',        label: 'Placed'      },
+  { key: 'Preparing',        label: 'Preparing'   },
+  { key: 'Ready',            label: 'Ready'       },
+  { key: 'Out for Delivery', label: 'On the way'  },
+  { key: 'Delivered',        label: 'Delivered'   },
+];
+
+function StatusTimeline({ status, orderType }: { status: string; orderType?: string }) {
   if (status === 'Cancelled') {
     return (
       <div className="flex items-center gap-2 my-3">
@@ -38,33 +47,34 @@ function StatusTimeline({ status }: { status: Order['status'] }) {
     );
   }
 
-  const activeIdx = status === 'Completed' ? 2 : status === 'Ready' ? 1 : 0;
+  const steps = orderType === 'delivery' ? DELIVERY_STEPS : PICKUP_STEPS;
+  const activeIdx = steps.findIndex(s => s.key === status);
+  const safeIdx   = activeIdx === -1 ? 0 : activeIdx;
 
   return (
     <div className="flex items-center gap-0 my-3">
-      {STEPS.map((step, i) => {
-        const done   = i < activeIdx;
-        const active = i === activeIdx;
-        const Icon   = step.icon;
+      {steps.map((step, i) => {
+        const done   = i < safeIdx;
+        const active = i === safeIdx;
         return (
           <div key={step.key} className="flex items-center flex-1">
             <div className="flex flex-col items-center gap-1">
               {done ? (
-                <CheckCircle size={18} className="text-[#22C55E]" fill="rgba(34,197,94,0.15)" />
+                <CheckCircle size={16} className="text-[#22C55E]" fill="rgba(34,197,94,0.15)" />
               ) : active ? (
                 <div className="relative">
-                  <Icon size={18} className="text-[#E8192C]" />
+                  <Package size={16} className="text-[#E8192C]" />
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#E8192C] animate-ping" />
                 </div>
               ) : (
-                <Circle size={18} className="text-[#262626]" />
+                <Circle size={16} className="text-[#262626]" />
               )}
-              <span className={`text-[9px] font-semibold whitespace-nowrap ${done ? 'text-[#22C55E]' : active ? 'text-[#E8192C]' : 'text-[#A0A0A0]'}`}>
+              <span className={`text-[8px] font-semibold whitespace-nowrap ${done ? 'text-[#22C55E]' : active ? 'text-[#E8192C]' : 'text-[#A0A0A0]'}`}>
                 {step.label}
               </span>
             </div>
-            {i < STEPS.length - 1 && (
-              <div className={`flex-1 h-0.5 mx-1 mb-4 rounded-full ${done ? 'bg-[#22C55E]' : 'bg-[#262626]'}`} />
+            {i < steps.length - 1 && (
+              <div className={`flex-1 h-0.5 mx-0.5 mb-4 rounded-full ${done ? 'bg-[#22C55E]' : 'bg-[#262626]'}`} />
             )}
           </div>
         );
@@ -270,7 +280,26 @@ export default function OrdersPage() {
                     </div>
 
                     {/* Timeline */}
-                    <StatusTimeline status={order.status} />
+                    <StatusTimeline status={order.status} orderType={order.order_type} />
+
+                    {/* Delivery code — show prominently for delivery orders */}
+                    {order.order_type === 'delivery' && order.status !== 'Delivered' && order.status !== 'Cancelled' && (
+                      <div className="bg-[rgba(34,197,94,0.06)] border border-[rgba(34,197,94,0.25)] rounded-xl p-3 mb-3 flex items-center justify-between">
+                        <div>
+                          <div className="text-[0.6rem] font-bold text-[#22C55E] uppercase tracking-[1.5px] mb-0.5">🔐 Delivery Code</div>
+                          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.5rem', letterSpacing: 4, color: '#F5C300' }}>{order.verification_code}</div>
+                        </div>
+                        <p className="text-[0.7rem] text-[#22C55E] max-w-[130px] text-right leading-[1.3]">Show to rider on arrival</p>
+                      </div>
+                    )}
+
+                    {/* Order notes */}
+                    {order.order_notes && (
+                      <div className="bg-[#161616] border border-[#F5C300]/20 rounded-xl px-3 py-2 mb-3 text-xs">
+                        <span className="text-[#F5C300] font-bold">📝 Your note: </span>
+                        <span className="text-[#A0A0A0]">{order.order_notes}</span>
+                      </div>
+                    )}
 
                     {/* Items */}
                     <div className="bg-[#161616] rounded-xl p-3 mb-3 space-y-1">
@@ -294,7 +323,7 @@ export default function OrdersPage() {
                         <Download size={12} />
                         {downloadingId === order.id ? 'Generating…' : 'PDF Receipt'}
                       </button>
-                      {order.status === 'Completed' && (
+                      {(order.status === 'Completed' || order.status === 'Delivered') && (
                         <button onClick={() => openRatingModal(order)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#F5C300]/10 border border-[#F5C300]/20 text-[#F5C300] text-xs font-semibold hover:bg-[#F5C300]/20 transition-colors">
                           <Star size={12} />
                           Rate
