@@ -18,9 +18,10 @@ type ActiveOrder = Order & {
 function nextStatus(order: ActiveOrder): string | null {
   if (order.order_type === 'delivery') {
     if (order.status === 'Confirmed') return 'Preparing';
-    if (order.status === 'Preparing') return 'Ready';
-    return null; // rider handles beyond Ready
+    if (order.status === 'Preparing') return 'Out for Delivery'; // kitchen dispatches
+    return null;
   }
+  // Pickup
   if (order.status === 'Confirmed') return 'Ready';
   if (order.status === 'Ready')     return 'Completed';
   return null;
@@ -166,17 +167,17 @@ export default function KitchenPage() {
             </div>
           </div>
 
-          {/* Ready */}
+          {/* Ready — pickup orders only */}
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
               <h2 className="text-sm font-bold text-[#22C55E] uppercase tracking-widest">
-                Ready ({ready.length})
+                Ready for Pickup ({ready.length})
               </h2>
             </div>
             <div className="space-y-3">
               {ready.map(makeCard)}
-              {ready.length === 0 && <p className="text-sm text-[#A0A0A0] text-center py-8">No orders ready yet</p>}
+              {ready.length === 0 && <p className="text-sm text-[#A0A0A0] text-center py-8">No pickup orders ready</p>}
             </div>
           </div>
         </div>

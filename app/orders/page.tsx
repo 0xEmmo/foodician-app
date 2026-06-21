@@ -32,9 +32,9 @@ const PICKUP_STEPS = [
 const DELIVERY_STEPS = [
   { key: 'Confirmed',        label: 'Placed'      },
   { key: 'Preparing',        label: 'Preparing'   },
-  { key: 'Ready',            label: 'Ready'       },
-  { key: 'Out for Delivery', label: 'On the way'  },
-  { key: 'Delivered',        label: 'Delivered'   },
+  { key: 'Out for Delivery', label: 'On the Way'  },
+  { key: 'Arrived',          label: 'Arrived'     },
+  { key: 'Delivered',        label: 'Delivered ✓' },
 ];
 
 function StatusTimeline({ status, orderType }: { status: string; orderType?: string }) {

@@ -21,10 +21,11 @@ interface KDSOrderCardProps {
 
 function getAction(status: string, orderType?: string): { label: string; color: string } | null {
   if (orderType === 'delivery') {
-    if (status === 'Confirmed') return { label: "Start Preparing", color: "bg-[#F5C300] text-black hover:bg-yellow-400" };
-    if (status === 'Preparing') return { label: "Mark Ready ✓",   color: "bg-[#22C55E] text-white hover:bg-[#16a34a]" };
-    return null; // Ready+ handled by rider
+    if (status === 'Confirmed') return { label: "Accept Order",          color: "bg-[#F5C300] text-black hover:bg-yellow-400" };
+    if (status === 'Preparing') return { label: "Packed — Dispatch 🛵", color: "bg-[#60a5fa] text-black hover:bg-blue-400" };
+    return null; // rider handles Out for Delivery onward
   }
+  // Pickup
   if (status === 'Confirmed') return { label: "Mark Ready",     color: "bg-[#E8192C] text-white hover:bg-[#FF2E43]" };
   if (status === 'Ready')     return { label: "Mark Completed", color: "bg-[#22C55E] text-white hover:bg-[#16a34a]" };
   return null;
@@ -90,9 +91,9 @@ export default function KDSOrderCard({ order, onAdvance, advancing }: KDSOrderCa
         ))}
       </div>
 
-      {order.order_type === 'delivery' && order.status === 'Ready' && (
-        <div className="text-center text-xs text-[#22C55E] bg-[#22C55E]/5 border border-[#22C55E]/15 rounded-lg py-2">
-          ✅ Waiting for rider to pick up
+      {order.order_type === 'delivery' && order.status === 'Out for Delivery' && (
+        <div className="text-center text-xs text-[#60a5fa] bg-[#60a5fa]/5 border border-[#60a5fa]/15 rounded-lg py-2">
+          🛵 Dispatched — rider is on the way
         </div>
       )}
 
