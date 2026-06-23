@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen } from 'lucide-react';
+import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen, MapPin } from 'lucide-react';
 import { useAppStore } from '@/src/store/useAppStore';
+import { calculateServiceCharge } from '@/src/lib/serviceCharge';
 import MenuCard from '@/src/components/MenuCard';
 import FavoritesCarousel from '@/src/components/FavoritesCarousel';
 import PromoCodeInput from '@/src/components/PromoCodeInput';
@@ -260,6 +261,8 @@ function CartSheet({
 
   // ─── DELIVERY STATE ───────────────────────────────────────────────────────
   const [orderType, setOrderType] = useState<'pickup' | 'delivery'>('pickup');
+  const [isUnilag, setIsUnilag] = useState(false);
+  const [unilagLocation, setUnilagLocation] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -274,7 +277,8 @@ function CartSheet({
 
   const cartIds = Object.keys(cart).map(Number).filter((id) => cart[id] > 0);
   const subtotal = cartTotal();
-  const total = (orderType === 'delivery' ? subtotal + deliveryFee : subtotal) - promoDiscount;
+  const serviceCharge = calculateServiceCharge(subtotal, orderType);
+  const total = subtotal + serviceCharge + (orderType === 'delivery' ? deliveryFee : 0) - promoDiscount;
   const mins = cartMins();
 
   const showToast = (msg: string) => {
@@ -298,14 +302,29 @@ function CartSheet({
     }
   };
 
-  // ─── Calculate Delivery Fee ───────────────────────────────────────────────
-  const handleAddressChange = async (address: string) => {
-    setDeliveryAddress(address);
-
-    if (address.length < 5 || orderType === 'pickup') {
+  // ─── UNILAG toggle ────────────────────────────────────────────────────────
+  const handleUnilagToggle = (on: boolean) => {
+    setIsUnilag(on);
+    if (on) {
+      setDeliveryFee(500);
+      setEstimatedTime(25);
+      setDeliveryData(null);
+      setDeliveryAddress('');
+    } else {
       setDeliveryFee(0);
       setEstimatedTime(0);
       setDeliveryData(null);
+      setDeliveryAddress('');
+      setUnilagLocation('');
+    }
+  };
+
+  // ─── Calculate Delivery Fee (outside UNILAG only) ─────────────────────────
+  const handleAddressChange = async (address: string) => {
+    setDeliveryAddress(address);
+
+    if (address.length < 5 || orderType === 'pickup' || isUnilag) {
+      if (!isUnilag) { setDeliveryFee(0); setEstimatedTime(0); setDeliveryData(null); }
       return;
     }
 
@@ -316,6 +335,7 @@ function CartSheet({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deliveryAddress: address,
+          isUnilag:        false,
           prepTimeMinutes: mins ?? 15,
         }),
       });
@@ -380,28 +400,37 @@ function CartSheet({
     });
     setOrderSnapshot({ code, items: receiptItems, total });
 
+    const deliveryType = orderType === 'pickup' ? 'pickup' : (isUnilag ? 'unilag' : 'outside');
+
     // Build order object with delivery info
     const orderData: Record<string, unknown> = {
       code,
-      mins: orderType === 'delivery' ? estimatedTime : mins ?? 15,
+      mins:            orderType === 'delivery' ? estimatedTime : mins ?? 15,
       total,
-      items: itemsArray,
-      time: new Date().toLocaleTimeString(),
-      status: 'Confirmed',
-      customer: sessionUser?.name ?? 'Guest',
-      user_email: sessionUser?.email ?? '',
-      payment_method: payMethod,
-      order_type: orderType,
+      items:           itemsArray,
+      time:            new Date().toLocaleTimeString(),
+      status:          'Confirmed',
+      customer:        sessionUser?.name ?? 'Guest',
+      user_email:      sessionUser?.email ?? '',
+      payment_method:  payMethod,
+      order_type:      orderType,
+      delivery_type:   deliveryType,
+      order_subtotal:  subtotal,
+      service_charge:  serviceCharge,
     };
 
-    // Add delivery details if applicable
-    if (orderType === 'delivery' && deliveryData) {
-      orderData.delivery_address = deliveryData.address;
-      orderData.delivery_lat = deliveryData.lat;
-      orderData.delivery_lng = deliveryData.lng;
-      orderData.distance_km = deliveryData.distance;
+    // Add delivery details
+    if (orderType === 'delivery') {
       orderData.delivery_fee = deliveryFee;
       if (deliveryPhone.trim()) orderData.customer_phone = deliveryPhone.trim();
+      if (isUnilag) {
+        orderData.delivery_address = unilagLocation.trim() || 'UNILAG Campus';
+      } else if (deliveryData) {
+        orderData.delivery_address = deliveryData.address;
+        orderData.delivery_lat     = deliveryData.lat;
+        orderData.delivery_lng     = deliveryData.lng;
+        orderData.distance_km      = deliveryData.distance;
+      }
     }
     if (orderNotes.trim()) orderData.order_notes = orderNotes.trim();
 
@@ -614,6 +643,8 @@ function CartSheet({
               <button
                 onClick={() => {
                   setOrderType('pickup');
+                  setIsUnilag(false);
+                  setUnilagLocation('');
                   setDeliveryAddress('');
                   setDeliveryFee(0);
                   setEstimatedTime(0);
@@ -641,18 +672,85 @@ function CartSheet({
               </button>
             </div>
 
-            {/* ─── DELIVERY ADDRESS INPUT ─── */}
+            {/* ─── DELIVERY DETAILS ─── */}
             {orderType === 'delivery' && (
               <div className="mb-5 pb-5 border-b border-[#262626]">
-                <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
-                <input
-                  type="text"
-                  value={deliveryAddress}
-                  onChange={(e) => handleAddressChange(e.target.value)}
-                  placeholder="e.g., Ikoyi, Lagos or Flat 12B, Victoria Island"
-                  className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+
+                {/* UNILAG toggle */}
+                <button
+                  onClick={() => handleUnilagToggle(!isUnilag)}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-[10px] border mb-4 transition-all cursor-pointer ${
+                    isUnilag
+                      ? 'bg-[rgba(245,195,0,0.08)] border-[#F5C300] text-[#F5C300]'
+                      : 'bg-[#161616] border-[#262626] text-[#A0A0A0]'
+                  }`}
                   style={{ fontFamily: "'DM Sans', sans-serif" }}
-                />
+                >
+                  <span className="flex items-center gap-2 text-[0.85rem] font-semibold">
+                    <MapPin size={15} />
+                    Delivering inside UNILAG campus?
+                  </span>
+                  <span className={`text-[0.75rem] font-bold uppercase tracking-[1px] px-2 py-0.5 rounded-[6px] ${isUnilag ? 'bg-[#F5C300] text-black' : 'bg-[#262626] text-[#666]'}`}>
+                    {isUnilag ? 'YES' : 'NO'}
+                  </span>
+                </button>
+
+                {isUnilag ? (
+                  /* ── UNILAG campus location input ── */
+                  <>
+                    <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Campus Location</label>
+                    <input
+                      type="text"
+                      value={unilagLocation}
+                      onChange={(e) => {
+                        setUnilagLocation(e.target.value);
+                        setDeliveryAddress(e.target.value || 'UNILAG Campus');
+                      }}
+                      placeholder="e.g. New Hall, Faculty of Engineering, Moremi"
+                      className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#F5C300] text-[0.9rem] mb-4"
+                      style={{ fontFamily: "'DM Sans', sans-serif" }}
+                    />
+                    <div className="bg-[#161616] border border-[rgba(245,195,0,0.3)] rounded-[10px] p-3.5 text-[0.8rem]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#A0A0A0]">Delivery Fee (UNILAG flat rate)</span>
+                        <span className="text-[#F5C300] font-bold">₦500</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* ── Outside UNILAG — full address + distance calc ── */
+                  <>
+                    <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
+                    <input
+                      type="text"
+                      value={deliveryAddress}
+                      onChange={(e) => handleAddressChange(e.target.value)}
+                      placeholder="e.g., Ikoyi, Lagos or Flat 12B, Victoria Island"
+                      className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                      style={{ fontFamily: "'DM Sans', sans-serif" }}
+                    />
+                    {calculating && (
+                      <p className="text-[0.75rem] text-[#F5C300] mt-2 font-semibold">Calculating delivery fee…</p>
+                    )}
+                    {deliveryData && deliveryFee > 0 && (
+                      <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[#A0A0A0]">Distance</span>
+                          <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
+                        </div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[#A0A0A0]">Delivery Fee</span>
+                          <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
+                          <span className="text-[#A0A0A0]">Est. Time</span>
+                          <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
                 <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mt-4 mb-2">Contact Phone for Rider</label>
                 <input
                   type="tel"
@@ -663,25 +761,6 @@ function CartSheet({
                   className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
                   style={{ fontFamily: "'DM Sans', sans-serif" }}
                 />
-                {calculating && (
-                  <p className="text-[0.75rem] text-[#F5C300] mt-2 font-semibold">Calculating delivery fee…</p>
-                )}
-                {deliveryData && deliveryFee > 0 && (
-                  <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[#A0A0A0]">📍 Distance</span>
-                      <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
-                    </div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[#A0A0A0]">🚚 Delivery Fee</span>
-                      <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
-                      <span className="text-[#A0A0A0]">⏱️ Est. Time</span>
-                      <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -716,17 +795,10 @@ function CartSheet({
             {/* Amount Display */}
             <div className="bg-[#161616] rounded-[12px] p-4 mb-5 flex flex-col gap-3 border border-[#262626]">
               {orderType === 'delivery' && deliveryFee > 0 && (
-                <>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Food</span>
-                    <span className="text-[0.9rem] text-white font-semibold">₦{subtotal.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Delivery</span>
-                    <span className="text-[0.9rem] text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
-                  </div>
-                  <div className="border-t border-[#262626]" />
-                </>
+                <div className="flex justify-between items-center">
+                  <span className="text-[0.75rem] text-[#A0A0A0] font-semibold">Delivery Fee</span>
+                  <span className="text-[0.9rem] text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                </div>
               )}
               {promoDiscount > 0 && (
                 <div className="flex justify-between items-center">
@@ -734,6 +806,9 @@ function CartSheet({
                   <span className="text-[0.9rem] text-[#22C55E] font-semibold">−₦{promoDiscount.toLocaleString()}</span>
                 </div>
               )}
+              {(orderType === 'delivery' && deliveryFee > 0) || promoDiscount > 0 ? (
+                <div className="border-t border-[#262626]" />
+              ) : null}
               <div className="flex justify-between items-center">
                 <span className="text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px]">Total Payable</span>
                 <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.8rem', color: '#F5C300', letterSpacing: '1px' }}>₦{Math.max(0, total).toLocaleString()}</span>
