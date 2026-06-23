@@ -247,7 +247,8 @@ function CartSheet({
 
   const [showPay, setShowPay] = useState(false);
   const [payMethod, setPayMethod] = useState<'wallet' | 'paystack' | 'transfer'>('wallet');
-  const [geocoding, setGeocoding] = useState(false);
+  const [geocoding, setGeocoding]     = useState(false);
+  const [suggestions, setSuggestions] = useState<{ lat: string; lon: string; display_name: string }[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmCode, setConfirmCode] = useState('');
   const [confirmMins, setConfirmMins] = useState(0);
@@ -331,41 +332,43 @@ function CartSheet({
     }
   };
 
-  // ─── Nominatim geocoding (debounced, free, no API key) ───────────────────
+  // ─── Nominatim address suggestions (debounced, free, no API key) ──────────
   useEffect(() => {
-    if (orderType !== 'delivery' || isUnilag || deliveryAddress.length <= 5) {
+    if (orderType !== 'delivery' || isUnilag || deliveryAddress.length < 4) {
       setGeocoding(false);
+      setSuggestions([]);
       return;
     }
     setGeocoding(true);
     const timer = setTimeout(async () => {
       try {
         const res  = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(deliveryAddress + ', Nigeria')}&limit=1&countrycodes=ng`,
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(deliveryAddress + ', Nigeria')}&limit=5&countrycodes=ng`,
           { headers: { 'User-Agent': 'Foodician/1.0' } },
         );
         const data = await res.json() as { lat: string; lon: string; display_name: string }[];
-        if (data.length > 0) {
-          const lat = parseFloat(data[0].lat);
-          const lng = parseFloat(data[0].lon);
-          const km  = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
-          setDeliveryFee(calculateDeliveryFee(false, lat, lng));
-          setEstimatedTime(Math.round((mins ?? 15) + km * 3));
-          setDeliveryData({ address: data[0].display_name, lat, lng, distance: km });
-        } else {
-          setDeliveryFee(0);
-          setDeliveryData(null);
-        }
+        setSuggestions(data);
       } catch {
-        setDeliveryFee(0);
-        setDeliveryData(null);
+        setSuggestions([]);
       } finally {
         setGeocoding(false);
       }
-    }, 900);
+    }, 600);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deliveryAddress, orderType, isUnilag]);
+
+  const handleSelectSuggestion = (s: { lat: string; lon: string; display_name: string }) => {
+    const lat   = parseFloat(s.lat);
+    const lng   = parseFloat(s.lon);
+    const label = s.display_name.split(',').slice(0, 3).join(',').trim();
+    setDeliveryAddress(label);
+    setSuggestions([]);
+    const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+    setDeliveryFee(calculateDeliveryFee(false, lat, lng));
+    setEstimatedTime(Math.round((mins ?? 15) + km * 3));
+    setDeliveryData({ address: s.display_name, lat, lng, distance: km });
+  };
 
   // ─── WhatsApp notification ─────────────────────────────────────────────────
   const sendWhatsAppNotification = (orderCode: string, itemsArray: string[], total: number) => {
@@ -721,24 +724,44 @@ function CartSheet({
                   /* ── Outside UNILAG — full address + distance calc ── */
                   <>
                     <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
-                    <input
-                      type="text"
-                      value={deliveryAddress}
-                      onChange={(e) => {
-                        setDeliveryAddress(e.target.value);
-                        setDeliveryFee(0);
-                        setDeliveryData(null);
-                      }}
-                      placeholder="e.g. New Hall GRA, Yaba or Flat 3, Lekki Phase 1"
-                      className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
-                      style={{ fontFamily: "'DM Sans', sans-serif" }}
-                    />
-                    {geocoding && (
-                      <p className="text-[0.72rem] text-[#F5C300] mt-1.5 font-semibold">Finding address…</p>
-                    )}
-                    {!geocoding && !deliveryData && deliveryAddress.length > 5 && (
-                      <p className="text-[0.72rem] text-[#E8192C] mt-1.5">Address not found — try adding a street name or landmark</p>
-                    )}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={deliveryAddress}
+                        onChange={(e) => {
+                          setDeliveryAddress(e.target.value);
+                          setDeliveryFee(0);
+                          setDeliveryData(null);
+                          setSuggestions([]);
+                        }}
+                        placeholder="e.g. Yaba, Lagos or Flat 3, Lekki Phase 1"
+                        className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                        style={{ fontFamily: "'DM Sans', sans-serif" }}
+                        autoComplete="off"
+                      />
+                      {geocoding && (
+                        <p className="text-[0.72rem] text-[#F5C300] mt-1.5 font-semibold">Searching…</p>
+                      )}
+                      {suggestions.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-[#1C1C1C] border border-[#333] rounded-[10px] overflow-hidden z-50 shadow-2xl">
+                          {suggestions.map((s, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(s); }}
+                              className="w-full text-left px-4 py-3 text-[0.82rem] text-white hover:bg-[#2A2A2A] active:bg-[#333] border-b border-[#262626] last:border-b-0 cursor-pointer"
+                              style={{ fontFamily: "'DM Sans', sans-serif" }}
+                            >
+                              <span className="text-[#E8192C] mr-1.5">📍</span>
+                              {s.display_name.split(',').slice(0, 3).join(',')}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {!geocoding && suggestions.length === 0 && !deliveryData && deliveryAddress.length >= 4 && (
+                        <p className="text-[0.72rem] text-[#666] mt-1.5">No results — try a street name or nearby landmark</p>
+                      )}
+                    </div>
                     {deliveryData && deliveryFee > 0 && (
                       <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
                         <div className="flex justify-between items-center mb-2">
