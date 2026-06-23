@@ -233,7 +233,6 @@ function CartSheet({
 }) {
   const cart = useAppStore((s) => s.cart);
   const changeQty = useAppStore((s) => s.changeQty);
-  const cartTotal = useAppStore((s) => s.cartTotal);
   const cartMins = useAppStore((s) => s.cartMins);
   const sessionUser = useAppStore((s) => s.sessionUser);
   const clearCart = useAppStore((s) => s.clearCart);
@@ -276,10 +275,17 @@ function CartSheet({
   } | null>(null);
 
   const cartIds = Object.keys(cart).map(Number).filter((id) => cart[id] > 0);
-  const subtotal = cartTotal();
+  // Use live DB prices from menuItems, not the static store MENU, to avoid mismatch
+  const subtotal = cartIds.reduce((sum, id) => {
+    const item = menuItems.find((m) => m.id === id);
+    return sum + (item ? item.price * cart[id] : 0);
+  }, 0);
   const serviceCharge = calculateServiceCharge(subtotal, orderType);
   const total = subtotal + serviceCharge + (orderType === 'delivery' ? deliveryFee : 0) - promoDiscount;
-  const mins = cartMins();
+  // Use DB prep times from menuItems for accuracy
+  const mins = cartIds.length
+    ? Math.max(...cartIds.map((id) => menuItems.find((m) => m.id === id)?.mins ?? 10)) + 3
+    : cartMins();
 
   const showToast = (msg: string) => {
     setToast(msg);
