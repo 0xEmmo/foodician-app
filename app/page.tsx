@@ -249,6 +249,7 @@ function CartSheet({
   const [payMethod, setPayMethod] = useState<'wallet' | 'paystack' | 'transfer'>('wallet');
   const [geocoding, setGeocoding]     = useState(false);
   const [suggestions, setSuggestions] = useState<{ lat: string; lon: string; display_name: string }[]>([]);
+  const skipGeocode = useRef(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmCode, setConfirmCode] = useState('');
   const [confirmMins, setConfirmMins] = useState(0);
@@ -334,6 +335,7 @@ function CartSheet({
 
   // ─── Nominatim address suggestions (debounced, free, no API key) ──────────
   useEffect(() => {
+    if (skipGeocode.current) { skipGeocode.current = false; return; }
     if (orderType !== 'delivery' || isUnilag || deliveryAddress.length < 4) {
       setGeocoding(false);
       setSuggestions([]);
@@ -362,6 +364,7 @@ function CartSheet({
     const lat   = parseFloat(s.lat);
     const lng   = parseFloat(s.lon);
     const label = s.display_name.split(',').slice(0, 3).join(',').trim();
+    skipGeocode.current = true; // prevent address change from re-triggering geocode
     setDeliveryAddress(label);
     setSuggestions([]);
     const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
@@ -743,7 +746,7 @@ function CartSheet({
                         <p className="text-[0.72rem] text-[#F5C300] mt-1.5 font-semibold">Searching…</p>
                       )}
                       {suggestions.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-[#1C1C1C] border border-[#333] rounded-[10px] overflow-hidden z-50 shadow-2xl">
+                        <div className="mt-2 bg-[#1C1C1C] border border-[#333] rounded-[10px] overflow-hidden shadow-xl">
                           {suggestions.map((s, i) => (
                             <button
                               key={i}
