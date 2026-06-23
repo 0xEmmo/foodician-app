@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen, MapPin } from 'lucide-react';
 import { useAppStore } from '@/src/store/useAppStore';
 import { calculateServiceCharge } from '@/src/lib/serviceCharge';
+import { calculateDeliveryFee, RESTAURANT_LAT, RESTAURANT_LNG } from '@/src/lib/delivery';
+import { haversineDistance } from '@/src/lib/distance';
 import MenuCard from '@/src/components/MenuCard';
 import FavoritesCarousel from '@/src/components/FavoritesCarousel';
 import PromoCodeInput from '@/src/components/PromoCodeInput';
@@ -16,7 +18,11 @@ import type { PromoCode } from '@/src/lib/promos';
 interface PaystackHandler { openIframe: () => void; }
 interface PaystackPopStatic { setup: (cfg: Record<string, unknown>) => PaystackHandler; }
 declare global {
-  interface Window { PaystackPop: PaystackPopStatic; }
+  interface Window {
+    PaystackPop: PaystackPopStatic;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    google?: any;
+  }
 }
 
 type Category = 'all' | 'pasta' | 'noodles' | 'protein' | 'sides';
@@ -241,6 +247,7 @@ function CartSheet({
 
   const [showPay, setShowPay] = useState(false);
   const [payMethod, setPayMethod] = useState<'wallet' | 'paystack' | 'transfer'>('wallet');
+  const addressInputRef = useRef<HTMLInputElement>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmCode, setConfirmCode] = useState('');
   const [confirmMins, setConfirmMins] = useState(0);
@@ -266,7 +273,6 @@ function CartSheet({
   const [deliveryPhone, setDeliveryPhone] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState(0);
-  const [calculating, setCalculating] = useState(false);
   const [deliveryData, setDeliveryData] = useState<{
     address: string;
     lat: number;
@@ -325,53 +331,48 @@ function CartSheet({
     }
   };
 
-  // ─── Calculate Delivery Fee (outside UNILAG only) ─────────────────────────
-  const handleAddressChange = async (address: string) => {
-    setDeliveryAddress(address);
+  // ─── Google Places Autocomplete (outside UNILAG) ─────────────────────────
+  useEffect(() => {
+    if (!showPay || orderType !== 'delivery' || isUnilag) return;
+    if (!addressInputRef.current) return;
 
-    if (address.length < 5 || orderType === 'pickup' || isUnilag) {
-      if (!isUnilag) { setDeliveryFee(0); setEstimatedTime(0); setDeliveryData(null); }
-      return;
-    }
+    const el = addressInputRef.current;
 
-    setCalculating(true);
-    try {
-      const response = await fetch('/api/checkout/calculate-delivery-fee', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deliveryAddress: address,
-          isUnilag:        false,
-          prepTimeMinutes: mins ?? 15,
-        }),
+    const init = () => {
+      if (!window.google?.maps?.places) return;
+      const ac = new window.google.maps.places.Autocomplete(el, {
+        componentRestrictions: { country: 'ng' },
+        fields: ['formatted_address', 'geometry'],
       });
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        const lat   = place.geometry?.location?.lat?.() as number | undefined;
+        const lng   = place.geometry?.location?.lng?.() as number | undefined;
+        const addr  = place.formatted_address ?? '';
+        setDeliveryAddress(addr);
+        if (lat !== undefined && lng !== undefined) {
+          const km  = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+          const fee = calculateDeliveryFee(false, lat, lng);
+          const eta = Math.round((mins ?? 15) + km * 3); // ~3 min/km estimate
+          setDeliveryFee(fee);
+          setEstimatedTime(eta);
+          setDeliveryData({ address: addr, lat, lng, distance: km });
+        }
+      });
+    };
 
-      const data = await response.json();
-
-      if (data.success) {
-        setDeliveryFee(data.deliveryFee);
-        setEstimatedTime(data.estimatedMinutes);
-        setDeliveryData({
-          address: data.deliveryAddress,
-          lat: data.deliveryLat,
-          lng: data.deliveryLng,
-          distance: data.distanceKm,
-        });
-      } else {
-        showToast(data.error || 'Could not calculate delivery fee');
-        setDeliveryFee(0);
-        setEstimatedTime(0);
-        setDeliveryData(null);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      showToast('Failed to calculate delivery fee');
-      setDeliveryFee(0);
-      setDeliveryData(null);
-    } finally {
-      setCalculating(false);
+    if (window.google?.maps?.places) {
+      init();
+    } else if (!document.getElementById('gmaps-script')) {
+      const script  = document.createElement('script');
+      script.id     = 'gmaps-script';
+      script.src    = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.async  = true;
+      script.onload = init;
+      document.head.appendChild(script);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPay, orderType, isUnilag]);
 
   // ─── WhatsApp notification ─────────────────────────────────────────────────
   const sendWhatsAppNotification = (orderCode: string, itemsArray: string[], total: number) => {
@@ -728,15 +729,20 @@ function CartSheet({
                   <>
                     <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
                     <input
+                      ref={addressInputRef}
                       type="text"
                       value={deliveryAddress}
-                      onChange={(e) => handleAddressChange(e.target.value)}
-                      placeholder="e.g., Ikoyi, Lagos or Flat 12B, Victoria Island"
+                      onChange={(e) => {
+                        setDeliveryAddress(e.target.value);
+                        setDeliveryFee(0);
+                        setDeliveryData(null);
+                      }}
+                      placeholder="Start typing your address…"
                       className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
                       style={{ fontFamily: "'DM Sans', sans-serif" }}
                     />
-                    {calculating && (
-                      <p className="text-[0.75rem] text-[#F5C300] mt-2 font-semibold">Calculating delivery fee…</p>
+                    {!deliveryData && deliveryAddress.length > 2 && (
+                      <p className="text-[0.72rem] text-[#666] mt-1.5">Select an address from the dropdown to calculate the fee</p>
                     )}
                     {deliveryData && deliveryFee > 0 && (
                       <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
