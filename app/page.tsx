@@ -247,7 +247,7 @@ function CartSheet({
 
   const [showPay, setShowPay] = useState(false);
   const [payMethod, setPayMethod] = useState<'wallet' | 'paystack' | 'transfer'>('wallet');
-  const addressInputRef = useRef<HTMLInputElement>(null);
+  const [geocoding, setGeocoding] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmCode, setConfirmCode] = useState('');
   const [confirmMins, setConfirmMins] = useState(0);
@@ -331,48 +331,41 @@ function CartSheet({
     }
   };
 
-  // ─── Google Places Autocomplete (outside UNILAG) ─────────────────────────
+  // ─── Nominatim geocoding (debounced, free, no API key) ───────────────────
   useEffect(() => {
-    if (!showPay || orderType !== 'delivery' || isUnilag) return;
-    if (!addressInputRef.current) return;
-
-    const el = addressInputRef.current;
-
-    const init = () => {
-      if (!window.google?.maps?.places) return;
-      const ac = new window.google.maps.places.Autocomplete(el, {
-        componentRestrictions: { country: 'ng' },
-        fields: ['formatted_address', 'geometry'],
-      });
-      ac.addListener('place_changed', () => {
-        const place = ac.getPlace();
-        const lat   = place.geometry?.location?.lat?.() as number | undefined;
-        const lng   = place.geometry?.location?.lng?.() as number | undefined;
-        const addr  = place.formatted_address ?? '';
-        setDeliveryAddress(addr);
-        if (lat !== undefined && lng !== undefined) {
-          const km  = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
-          const fee = calculateDeliveryFee(false, lat, lng);
-          const eta = Math.round((mins ?? 15) + km * 3); // ~3 min/km estimate
-          setDeliveryFee(fee);
-          setEstimatedTime(eta);
-          setDeliveryData({ address: addr, lat, lng, distance: km });
-        }
-      });
-    };
-
-    if (window.google?.maps?.places) {
-      init();
-    } else if (!document.getElementById('gmaps-script')) {
-      const script  = document.createElement('script');
-      script.id     = 'gmaps-script';
-      script.src    = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`;
-      script.async  = true;
-      script.onload = init;
-      document.head.appendChild(script);
+    if (orderType !== 'delivery' || isUnilag || deliveryAddress.length <= 5) {
+      setGeocoding(false);
+      return;
     }
+    setGeocoding(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res  = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(deliveryAddress + ', Nigeria')}&limit=1&countrycodes=ng`,
+          { headers: { 'User-Agent': 'Foodician/1.0' } },
+        );
+        const data = await res.json() as { lat: string; lon: string; display_name: string }[];
+        if (data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lng = parseFloat(data[0].lon);
+          const km  = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+          setDeliveryFee(calculateDeliveryFee(false, lat, lng));
+          setEstimatedTime(Math.round((mins ?? 15) + km * 3));
+          setDeliveryData({ address: data[0].display_name, lat, lng, distance: km });
+        } else {
+          setDeliveryFee(0);
+          setDeliveryData(null);
+        }
+      } catch {
+        setDeliveryFee(0);
+        setDeliveryData(null);
+      } finally {
+        setGeocoding(false);
+      }
+    }, 900);
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPay, orderType, isUnilag]);
+  }, [deliveryAddress, orderType, isUnilag]);
 
   // ─── WhatsApp notification ─────────────────────────────────────────────────
   const sendWhatsAppNotification = (orderCode: string, itemsArray: string[], total: number) => {
@@ -729,7 +722,6 @@ function CartSheet({
                   <>
                     <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
                     <input
-                      ref={addressInputRef}
                       type="text"
                       value={deliveryAddress}
                       onChange={(e) => {
@@ -737,12 +729,15 @@ function CartSheet({
                         setDeliveryFee(0);
                         setDeliveryData(null);
                       }}
-                      placeholder="Start typing your address…"
+                      placeholder="e.g. New Hall GRA, Yaba or Flat 3, Lekki Phase 1"
                       className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
                       style={{ fontFamily: "'DM Sans', sans-serif" }}
                     />
-                    {!deliveryData && deliveryAddress.length > 2 && (
-                      <p className="text-[0.72rem] text-[#666] mt-1.5">Select an address from the dropdown to calculate the fee</p>
+                    {geocoding && (
+                      <p className="text-[0.72rem] text-[#F5C300] mt-1.5 font-semibold">Finding address…</p>
+                    )}
+                    {!geocoding && !deliveryData && deliveryAddress.length > 5 && (
+                      <p className="text-[0.72rem] text-[#E8192C] mt-1.5">Address not found — try adding a street name or landmark</p>
                     )}
                     {deliveryData && deliveryFee > 0 && (
                       <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
