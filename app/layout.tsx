@@ -22,11 +22,42 @@ const dmSans = DM_Sans({
   display: 'swap',
 });
 
+const SITE_URL = 'https://treatsbyfoodician.com.ng';
+
 export const metadata: Metadata = {
-  title: 'Treats by Foodician — Premium Pickup',
-  description: 'Order ahead, pay securely, and pick up your hot local delicacies.',
+  title: 'Treats by Foodician — Premium Pickup & Delivery',
+  description: 'Order ahead, pay securely. Pickup or delivery from your favourite Lagos restaurant.',
   manifest: '/manifest.json',
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Foodician' },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Treats by Foodician',
+  },
+  icons: {
+    icon:  '/icon-192.png',
+    apple: '/icon-192.png',
+  },
+  openGraph: {
+    title:       'Treats by Foodician',
+    description: 'Order ahead, pay securely. Pickup or delivery.',
+    url:         SITE_URL,
+    siteName:    'Treats by Foodician',
+    type:        'website',
+    images: [
+      {
+        url:    `${SITE_URL}/og-image.png`,
+        width:  1200,
+        height: 630,
+        alt:    'Treats by Foodician',
+      },
+    ],
+  },
+  twitter: {
+    card:        'summary_large_image',
+    title:       'Treats by Foodician',
+    description: 'Order ahead, pay securely.',
+    images:      [`${SITE_URL}/og-image.png`],
+  },
 };
 
 export const viewport: Viewport = {
