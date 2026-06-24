@@ -49,6 +49,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, unreadMessages, 
 
   function handleNav(id: Tab) {
     if (id === 'messages') { onNavigate('/admin/messages'); }
+    else if (id === 'settings') { onNavigate('/admin/settings'); }
     else { setActiveTab(id); }
     if (isMobile) setMobileOpen(false);
   }
