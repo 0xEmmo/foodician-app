@@ -5,7 +5,7 @@ export const RESTAURANT_LNG = 3.3958;
 
 const UNILAG_FLAT_FEE  = 500;
 const OUTSIDE_BASE_FEE = 500;
-const OUTSIDE_PER_KM   = 350;
+const OUTSIDE_PER_KM   = 200;
 
 export function calculateDeliveryFee(
   isUnilag: boolean,
