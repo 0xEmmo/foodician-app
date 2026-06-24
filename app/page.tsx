@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import Image from 'next/image';
-import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen, MapPin } from 'lucide-react';
+import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen, MapPin, Locate, Map } from 'lucide-react';
 import { useAppStore } from '@/src/store/useAppStore';
 import { calculateServiceCharge } from '@/src/lib/serviceCharge';
 import { calculateDeliveryFee, RESTAURANT_LAT, RESTAURANT_LNG, type DeliveryConfig } from '@/src/lib/delivery';
@@ -14,6 +15,11 @@ import { supabase } from '@/src/lib/supabase';
 import { generateReceiptPDF } from '@/src/lib/receipts';
 import { applyReferralCode } from '@/src/lib/referrals';
 import type { PromoCode } from '@/src/lib/promos';
+
+const CustomerMapOverlay = dynamic(
+  () => import('@/src/components/CustomerMapOverlay'),
+  { ssr: false },
+);
 
 interface PaystackHandler { openIframe: () => void; }
 interface PaystackPopStatic { setup: (cfg: Record<string, unknown>) => PaystackHandler; }
@@ -273,8 +279,10 @@ function CartSheet({
   const [unilagLocation, setUnilagLocation] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState('');
-  const [deliveryFee, setDeliveryFee] = useState(0);
-  const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig>({ baseFee: 500, perKmRate: 200, unilagFee: 500, freeFirstKm: 1 });
+  const [deliveryFee,     setDeliveryFee]     = useState(0);
+  const [deliveryConfig,  setDeliveryConfig]  = useState<DeliveryConfig>({ baseFee: 500, perKmRate: 200, unilagFee: 500, freeFirstKm: 1 });
+  const [gpsLoading,      setGpsLoading]      = useState(false);
+  const [showMapOverlay,  setShowMapOverlay]  = useState(false);
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [houseDetail, setHouseDetail] = useState('');
   const [deliveryData, setDeliveryData] = useState<{
@@ -387,13 +395,70 @@ function CartSheet({
     const lat   = parseFloat(s.lat);
     const lng   = parseFloat(s.lon);
     const label = s.display_name.split(',').slice(0, 3).join(',').trim();
-    skipGeocode.current = true; // prevent address change from re-triggering geocode
+    skipGeocode.current = true;
     setDeliveryAddress(label);
     setSuggestions([]);
     const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
     setDeliveryFee(calculateDeliveryFee(false, lat, lng, deliveryConfig));
     setEstimatedTime(Math.round((mins ?? 15) + km * 3));
     setDeliveryData({ address: s.display_name, lat, lng, distance: km });
+  };
+
+  // ─── GPS auto-locate ───────────────────────────────────────────────────────
+  const handleGPS = () => {
+    if (!navigator.geolocation) { alert('Location not supported on this device.'); return; }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          const res  = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=17`,
+            { headers: { 'User-Agent': 'Foodician/1.0' } },
+          );
+          const data = await res.json() as { display_name?: string };
+          const address = data.display_name ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          const label   = address.split(',').slice(0, 3).join(',').trim();
+          skipGeocode.current = true;
+          setDeliveryAddress(label);
+          setSuggestions([]);
+          const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+          setDeliveryFee(calculateDeliveryFee(false, lat, lng, deliveryConfig));
+          setEstimatedTime(Math.round((mins ?? 15) + km * 3));
+          setDeliveryData({ address, lat, lng, distance: km });
+        } catch {
+          const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+          skipGeocode.current = true;
+          setDeliveryAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+          setSuggestions([]);
+          setDeliveryFee(calculateDeliveryFee(false, lat, lng, deliveryConfig));
+          setEstimatedTime(Math.round((mins ?? 15) + km * 3));
+          setDeliveryData({ address: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng, distance: km });
+        } finally {
+          setGpsLoading(false);
+        }
+      },
+      (err) => {
+        setGpsLoading(false);
+        if (err.code === 1) alert('Location access denied. Please allow location in your browser settings.');
+        else alert('Could not get your location. Please try again.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  };
+
+  // ─── Map overlay confirm ───────────────────────────────────────────────────
+  const handleMapConfirm = (lat: number, lng: number, address: string) => {
+    const label = address.split(',').slice(0, 3).join(',').trim();
+    skipGeocode.current = true;
+    setDeliveryAddress(label);
+    setSuggestions([]);
+    const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
+    setDeliveryFee(calculateDeliveryFee(false, lat, lng, deliveryConfig));
+    setEstimatedTime(Math.round((mins ?? 15) + km * 3));
+    setDeliveryData({ address, lat, lng, distance: km });
+    setShowMapOverlay(false);
   };
 
   // ─── WhatsApp notification ─────────────────────────────────────────────────
@@ -753,7 +818,27 @@ function CartSheet({
                 ) : (
                   /* ── Outside UNILAG — full address + distance calc ── */
                   <>
-                    <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Delivery Address</label>
+                    {/* GPS + Map buttons */}
+                    <div className="flex gap-2 mb-3">
+                      <button
+                        onClick={handleGPS}
+                        disabled={gpsLoading}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-[10px] border border-[#262626] bg-[#161616] text-[#A0A0A0] text-[0.78rem] font-semibold cursor-pointer transition-colors hover:border-[#E8192C] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{ fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        <Locate size={13} className={gpsLoading ? 'animate-spin' : ''} />
+                        {gpsLoading ? 'Locating…' : 'Use my location'}
+                      </button>
+                      <button
+                        onClick={() => setShowMapOverlay(true)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-[10px] border border-[#262626] bg-[#161616] text-[#A0A0A0] text-[0.78rem] font-semibold cursor-pointer transition-colors hover:border-[#E8192C] hover:text-white"
+                        style={{ fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        <Map size={13} />
+                        Pin on map
+                      </button>
+                    </div>
+                    <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">Or type address</label>
                     <div className="relative">
                       <input
                         type="text"
@@ -1027,6 +1112,16 @@ function CartSheet({
         <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 bg-[#161616] text-white border border-[#E8192C] px-5 py-3 rounded-[10px] text-[0.85rem] font-semibold z-[900] whitespace-nowrap shadow-[0_10px_25px_rgba(0,0,0,0.5)]">
           {toast}
         </div>
+      )}
+
+      {/* Full-screen map overlay for location pin */}
+      {showMapOverlay && (
+        <CustomerMapOverlay
+          initialLat={deliveryData?.lat ?? RESTAURANT_LAT}
+          initialLng={deliveryData?.lng ?? RESTAURANT_LNG}
+          onConfirm={handleMapConfirm}
+          onClose={() => setShowMapOverlay(false)}
+        />
       )}
     </>
   );
