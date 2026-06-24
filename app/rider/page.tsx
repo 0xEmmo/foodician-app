@@ -143,12 +143,20 @@ export default function RiderPage() {
             <div style={{ fontSize: '0.65rem', color: '#A0A0A0', letterSpacing: 1 }}>Hey, {sessionUser.name}</div>
           </div>
         </div>
-        <button
-          onClick={fetchOrders}
-          style={{ padding: '0.3rem 0.875rem', borderRadius: 6, background: '#161616', border: '1px solid #262626', color: '#A0A0A0', cursor: 'pointer', fontSize: '0.78rem' }}
-        >
-          ↻ Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => router.push('/rider/history')}
+            style={{ padding: '0.3rem 0.875rem', borderRadius: 6, background: '#161616', border: '1px solid #262626', color: '#A0A0A0', cursor: 'pointer', fontSize: '0.78rem' }}
+          >
+            📋 History
+          </button>
+          <button
+            onClick={fetchOrders}
+            style={{ padding: '0.3rem 0.875rem', borderRadius: 6, background: '#161616', border: '1px solid #262626', color: '#A0A0A0', cursor: 'pointer', fontSize: '0.78rem' }}
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: 800, margin: '0 auto', padding: '1.25rem 1rem' }}>
