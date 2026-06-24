@@ -8,6 +8,7 @@ import { useAppStore } from '@/src/store/useAppStore';
 import LoyaltySection from '@/src/components/LoyaltySection';
 import AddressManager from '@/src/components/AddressManager';
 import { getReferralStats, type ReferralStats } from '@/src/lib/referrals';
+import { supabase } from '@/src/lib/supabase';
 
 interface PaystackHandler { openIframe: () => void; }
 interface PaystackPopStatic { setup: (cfg: Record<string, unknown>) => PaystackHandler; }
@@ -125,7 +126,7 @@ function TopupSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 }
 
 // ─── Referral Panel ─────────────────────────────────────────────────────────
-function ReferralPanel({ userId }: { userId: string }) {
+function ReferralPanel({ userId, rewardAmount = 500 }: { userId: string; rewardAmount?: number }) {
   const [stats,   setStats]   = useState<ReferralStats | null>(null);
   const [copied,  setCopied]  = useState(false);
   const [loading, setLoading] = useState(true);
@@ -174,7 +175,7 @@ function ReferralPanel({ userId }: { userId: string }) {
         ))}
       </div>
       <p style={{ fontSize: 11, color: '#A0A0A0', textAlign: 'center' }}>
-        Earn <span style={{ color: '#F5C300', fontWeight: 600 }}>₦2,000</span> wallet credit for every friend who completes their first order.
+        Earn <span style={{ color: '#F5C300', fontWeight: 600 }}>₦{rewardAmount.toLocaleString()}</span> wallet credit for every friend who completes their first order.
       </p>
     </div>
   );
@@ -223,6 +224,23 @@ export default function ProfilePage() {
   const [rewardsOpen,  setRewardsOpen]  = useState(false);
   const [addressOpen,  setAddressOpen]  = useState(false);
   const [referralOpen, setReferralOpen] = useState(false);
+
+  const [loyaltyEnabled,  setLoyaltyEnabled]  = useState(true);
+  const [referralEnabled, setReferralEnabled] = useState(true);
+  const [referralReward,  setReferralReward]  = useState(500);
+
+  useEffect(() => {
+    supabase
+      .from('restaurant_config')
+      .select('loyalty_points_enabled, referral_enabled, referral_reward_amount')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        if (data.loyalty_points_enabled  != null) setLoyaltyEnabled(data.loyalty_points_enabled  as boolean);
+        if (data.referral_enabled        != null) setReferralEnabled(data.referral_enabled        as boolean);
+        if (data.referral_reward_amount  != null) setReferralReward(data.referral_reward_amount   as number);
+      });
+  }, []);
 
   const handleLogout = () => { logout(); router.push('/'); };
 
@@ -357,34 +375,38 @@ export default function ProfilePage() {
           </div>
         </Row>
 
-        {/* Loyalty Points */}
-        <Row
-          icon={<Trophy size={18} />}
-          label="Loyalty Points"
-          desc="Earn & redeem points on every order"
-          expanded={rewardsOpen}
-          onClick={() => setRewardsOpen((v) => !v)}
-        >
-          {sessionUser && <div style={{ padding: '0 1rem 1rem' }}><LoyaltySection /></div>}
-        </Row>
+        {/* Loyalty Points — hidden when disabled by admin */}
+        {loyaltyEnabled && (
+          <Row
+            icon={<Trophy size={18} />}
+            label="Loyalty Points"
+            desc="Earn & redeem points on every order"
+            expanded={rewardsOpen}
+            onClick={() => setRewardsOpen((v) => !v)}
+          >
+            {sessionUser && <div style={{ padding: '0 1rem 1rem' }}><LoyaltySection /></div>}
+          </Row>
+        )}
 
-        {/* Referrals & Rewards */}
-        <Row
-          icon={<Gift size={18} />}
-          label="Referrals & Rewards"
-          desc="Invite friends, earn ₦2,000 each"
-          expanded={referralOpen}
-          onClick={() => setReferralOpen((v) => !v)}
-        >
-          {sessionUser && <ReferralPanel userId={sessionUser.id} />}
-        </Row>
+        {/* Referrals & Rewards — hidden when disabled by admin */}
+        {referralEnabled && (
+          <Row
+            icon={<Gift size={18} />}
+            label="Referrals & Rewards"
+            desc={`Invite friends, earn ₦${referralReward.toLocaleString()} each`}
+            expanded={referralOpen}
+            onClick={() => setReferralOpen((v) => !v)}
+          >
+            {sessionUser && <ReferralPanel userId={sessionUser.id} rewardAmount={referralReward} />}
+          </Row>
+        )}
 
         {/* Help & Support */}
         <Row
           icon={<HelpCircle size={18} />}
           label="Help & Support"
-          desc="Get in touch with us"
-          onClick={() => {}}
+          desc="09015845354"
+          onClick={() => window.open('https://wa.me/2349015845354', '_blank')}
         />
 
         {/* Log Out */}

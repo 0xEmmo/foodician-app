@@ -45,6 +45,13 @@ export default function AdminSettingsPage() {
   const [shopHours,   setShopHours]   = useState<ShopHour[]>([]);
   const [savingHours, setSavingHours] = useState(false);
 
+  // ── Loyalty & Referrals ────────────────────────────────────────────────────
+  const [loyaltyEnabled,  setLoyaltyEnabled]  = useState(true);
+  const [referralEnabled, setReferralEnabled] = useState(true);
+  const [referralReward,  setReferralReward]  = useState(500);
+  const [savingLoyalty,   setSavingLoyalty]   = useState(false);
+  const [savedLoyalty,    setSavedLoyalty]    = useState(false);
+
   // ── Telegram ───────────────────────────────────────────────────────────────
   const [tgToken,      setTgToken]      = useState('');
   const [tgChatId,     setTgChatId]     = useState('');
@@ -58,7 +65,7 @@ export default function AdminSettingsPage() {
     const [{ data: cfg }, { data: hours }] = await Promise.all([
       supabase
         .from('restaurant_config')
-        .select('id, restaurant_name, main_address, latitude, longitude, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km, telegram_bot_token, telegram_chat_id')
+        .select('id, restaurant_name, main_address, latitude, longitude, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km, telegram_bot_token, telegram_chat_id, loyalty_points_enabled, referral_enabled, referral_reward_amount')
         .maybeSingle(),
       supabase.from('shop_hours').select('*').order('day_of_week'),
     ]);
@@ -75,8 +82,11 @@ export default function AdminSettingsPage() {
         unilag_fee:    (cfg.unilag_fee         as number) ?? 500,
         free_first_km: (cfg.free_first_km      as number) ?? 1,
       });
-      if (cfg.telegram_bot_token) setTgToken(cfg.telegram_bot_token as string);
-      if (cfg.telegram_chat_id)   setTgChatId(cfg.telegram_chat_id  as string);
+      if (cfg.telegram_bot_token)    setTgToken(cfg.telegram_bot_token        as string);
+      if (cfg.telegram_chat_id)      setTgChatId(cfg.telegram_chat_id         as string);
+      if (cfg.loyalty_points_enabled != null) setLoyaltyEnabled(cfg.loyalty_points_enabled as boolean);
+      if (cfg.referral_enabled       != null) setReferralEnabled(cfg.referral_enabled      as boolean);
+      if (cfg.referral_reward_amount != null) setReferralReward(cfg.referral_reward_amount as number);
     }
     if (hours) setShopHours(hours as ShopHour[]);
   }, []);
@@ -111,6 +121,18 @@ export default function AdminSettingsPage() {
     setSavingPricing(false);
     setSavedPricing(true);
     setTimeout(() => setSavedPricing(false), 3500);
+  };
+
+  // ── Save Loyalty & Referral settings ─────────────────────────────────────
+  const saveLoyalty = async () => {
+    if (!configRowId) return;
+    setSavingLoyalty(true);
+    await supabase.from('restaurant_config')
+      .update({ loyalty_points_enabled: loyaltyEnabled, referral_enabled: referralEnabled, referral_reward_amount: referralReward, updated_at: new Date().toISOString() })
+      .eq('id', configRowId);
+    setSavingLoyalty(false);
+    setSavedLoyalty(true);
+    setTimeout(() => setSavedLoyalty(false), 3500);
   };
 
   // ── Save Telegram credentials ─────────────────────────────────────────────
@@ -283,6 +305,57 @@ export default function AdminSettingsPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* ── Loyalty & Referrals ─────────────────────────────────────────── */}
+        <div style={sectionStyle}>
+          <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', marginBottom: '0.25rem' }}>Loyalty & Referrals</h2>
+          <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '1.5rem' }}>Control whether customers can earn points and refer friends.</p>
+
+          {/* Toggle row helper */}
+          {[
+            { label: 'Loyalty Points', desc: 'Customers earn points on every order', value: loyaltyEnabled, onChange: setLoyaltyEnabled },
+            { label: 'Referral Program', desc: 'Customers can invite friends for rewards', value: referralEnabled, onChange: setReferralEnabled },
+          ].map(({ label, desc, value, onChange }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#F5F5F5' }}>{label}</div>
+                <div style={{ fontSize: '0.75rem', color: '#666', marginTop: 2 }}>{desc}</div>
+              </div>
+              <button
+                onClick={() => onChange(!value)}
+                style={{
+                  width: 52, height: 28, borderRadius: 14, border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
+                  background: value ? '#22C55E' : '#262626', transition: 'background 0.2s',
+                }}
+                aria-label={`Toggle ${label}`}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: value ? 27 : 3, width: 22, height: 22,
+                  borderRadius: '50%', background: '#fff', transition: 'left 0.2s', display: 'block',
+                }} />
+              </button>
+            </div>
+          ))}
+
+          <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: '1.25rem' }}>
+            <label style={{ fontSize: '0.72rem', color: '#A0A0A0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 6 }}>Referral Reward Amount (₦)</label>
+            <input
+              type="number" min={0} step={100}
+              value={referralReward}
+              onChange={e => setReferralReward(Number(e.target.value))}
+              style={{ ...inputStyle, width: 180 }}
+            />
+            <p style={{ fontSize: '0.72rem', color: '#444', marginTop: 6 }}>Wallet credit given to referee when their friend completes first order.</p>
+          </div>
+
+          <button
+            onClick={saveLoyalty}
+            disabled={savingLoyalty || !configRowId}
+            style={{ marginTop: '1.25rem', background: savedLoyalty ? 'rgba(34,197,94,0.12)' : savingLoyalty ? '#262626' : '#E8192C', color: savedLoyalty ? '#22C55E' : '#fff', border: savedLoyalty ? '1px solid rgba(34,197,94,0.35)' : 'none', padding: '0.65rem 1.75rem', borderRadius: 8, cursor: savingLoyalty ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: savingLoyalty ? 0.6 : 1, transition: 'all 0.25s' }}
+          >
+            {savedLoyalty ? 'Saved ✓' : savingLoyalty ? 'Saving…' : 'Save Settings'}
+          </button>
         </div>
 
         {/* ── Telegram Notifications ──────────────────────────────────────── */}

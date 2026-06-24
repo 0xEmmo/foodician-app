@@ -212,7 +212,7 @@ function AuthGate() {
               <input type="text" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
                 placeholder="E.G. ABCD1234" maxLength={8}
                 className={`${field} pl-11 tracking-[3px]`} />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-[#E8192C] font-semibold">optional — get ₦2,000</span>
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-[#E8192C] font-semibold">optional — earn reward</span>
             </div>
           )}
 
@@ -467,22 +467,6 @@ function CartSheet({
     setShowMapOverlay(false);
   };
 
-  // ─── WhatsApp notification ─────────────────────────────────────────────────
-  const sendWhatsAppNotification = (orderCode: string, itemsArray: string[], total: number) => {
-    const phoneNumber = '2347074099721';
-    const itemsText = itemsArray.join('\n• ');
-    let message = `🍽️ *NEW ORDER #${orderCode}* 🍽️\n\n*Customer:* ${sessionUser?.name}\n*Items:*\n• ${itemsText}\n\n*Total:* ₦${total.toLocaleString()}\n`;
-    
-    if (orderType === 'delivery') {
-      message += `\n📍 *DELIVERY* to: ${deliveryData?.address}\n⏱️ ETA: ${estimatedTime} mins`;
-    } else {
-      message += `\n*Status:* Confirmed – prepare for pickup in ${mins} mins.`;
-    }
-    
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
-  };
-
   // ─── Finalise order ───────────────────────────────────────────────────────
   const finaliseOrder = async () => {
     if (isSubmitting) return;
@@ -538,7 +522,6 @@ function CartSheet({
     if (orderNotes.trim()) orderData.order_notes = orderNotes.trim();
 
     addOrder(orderData as Parameters<typeof addOrder>[0]);
-    sendWhatsAppNotification(code, itemsArray, total);
 
     // Telegram: new order alert
     notifyTelegram({
