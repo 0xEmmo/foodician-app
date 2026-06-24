@@ -202,6 +202,13 @@ function AuthGate() {
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 6 characters" className={`${field} pl-11`} />
           </div>
+          {isLogin && (
+            <div className="text-right -mt-1">
+              <a href="/auth/forgot-password" className="text-[0.78rem] hover:opacity-80 transition-opacity" style={{ color: '#534AB7' }}>
+                Forgot password?
+              </a>
+            </div>
+          )}
 
           {/* Referral code (signup only) */}
           {!isLogin && (
