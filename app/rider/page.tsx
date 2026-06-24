@@ -12,6 +12,8 @@ type DeliveryOrder = {
   user_email: string;
   customer_phone: string | null;
   delivery_address: string | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
   items: string[];
   total_amount: number;
   delivery_fee: number | null;
@@ -209,7 +211,11 @@ export default function RiderPage() {
                           <span style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{order.delivery_address}</span>
                         </div>
                         <a
-                          href={`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`}
+                          href={
+                            order.delivery_lat && order.delivery_lng
+                              ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery_lat},${order.delivery_lng}`
+                              : `https://maps.google.com/?q=${encodeURIComponent(order.delivery_address ?? '')}`
+                          }
                           target="_blank" rel="noopener noreferrer"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: '0.75rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
                         >
