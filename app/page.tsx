@@ -275,6 +275,7 @@ function CartSheet({
   const [deliveryPhone, setDeliveryPhone] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState(0);
+  const [houseDetail, setHouseDetail] = useState('');
   const [deliveryData, setDeliveryData] = useState<{
     address: string;
     lat: number;
@@ -324,11 +325,13 @@ function CartSheet({
       setEstimatedTime(25);
       setDeliveryData(null);
       setDeliveryAddress('');
+      setHouseDetail('');
     } else {
       setDeliveryFee(0);
       setEstimatedTime(0);
       setDeliveryData(null);
       setDeliveryAddress('');
+      setHouseDetail('');
       setUnilagLocation('');
     }
   };
@@ -432,7 +435,10 @@ function CartSheet({
       if (isUnilag) {
         orderData.delivery_address = unilagLocation.trim() || 'UNILAG Campus';
       } else if (deliveryData) {
-        orderData.delivery_address = deliveryData.address;
+        const fullAddress = houseDetail.trim()
+          ? `${houseDetail.trim()}, ${deliveryData.address}`
+          : deliveryData.address;
+        orderData.delivery_address = fullAddress;
         orderData.delivery_lat     = deliveryData.lat;
         orderData.delivery_lng     = deliveryData.lng;
         orderData.distance_km      = deliveryData.distance;
@@ -652,6 +658,7 @@ function CartSheet({
                   setIsUnilag(false);
                   setUnilagLocation('');
                   setDeliveryAddress('');
+                  setHouseDetail('');
                   setDeliveryFee(0);
                   setEstimatedTime(0);
                   setDeliveryData(null);
@@ -735,6 +742,7 @@ function CartSheet({
                           setDeliveryAddress(e.target.value);
                           setDeliveryFee(0);
                           setDeliveryData(null);
+                          setHouseDetail('');
                           setSuggestions([]);
                         }}
                         placeholder="e.g. Yaba, Lagos or Flat 3, Lekki Phase 1"
@@ -765,21 +773,38 @@ function CartSheet({
                         <p className="text-[0.72rem] text-[#666] mt-1.5">No results — try a street name or nearby landmark</p>
                       )}
                     </div>
-                    {deliveryData && deliveryFee > 0 && (
-                      <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-[#A0A0A0]">Distance</span>
-                          <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
+                    {deliveryData && (
+                      <>
+                        <div className="mt-3">
+                          <label className="block text-[0.8rem] text-[#A0A0A0] font-semibold uppercase tracking-[1px] mb-2">
+                            House / Flat Number <span className="text-[#555] normal-case font-normal">(optional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={houseDetail}
+                            onChange={(e) => setHouseDetail(e.target.value)}
+                            placeholder="e.g. Flat 3B, No. 12, Behind GTBank…"
+                            className="w-full bg-[#161616] border border-[#262626] rounded-[10px] px-4 py-3.5 text-white outline-none focus:border-[#E8192C] text-[0.9rem]"
+                            style={{ fontFamily: "'DM Sans', sans-serif" }}
+                          />
                         </div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-[#A0A0A0]">Delivery Fee</span>
-                          <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
-                          <span className="text-[#A0A0A0]">Est. Time</span>
-                          <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
-                        </div>
-                      </div>
+                        {deliveryFee > 0 && (
+                          <div className="bg-[#161616] border border-[rgba(232,25,44,0.3)] rounded-[10px] p-3.5 mt-3 text-[0.8rem]">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-[#A0A0A0]">Distance</span>
+                              <span className="text-white font-semibold">{deliveryData.distance.toFixed(1)} km</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-[#A0A0A0]">Delivery Fee</span>
+                              <span className="text-[#F5C300] font-semibold">₦{deliveryFee.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between items-center pt-2 border-t border-[#262626]">
+                              <span className="text-[#A0A0A0]">Est. Time</span>
+                              <span className="text-[#E8192C] font-bold">{estimatedTime} mins</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </>
                 )}
