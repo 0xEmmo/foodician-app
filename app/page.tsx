@@ -321,15 +321,16 @@ function CartSheet({
   // ─── Fetch live delivery pricing from admin settings ─────────────────────
   useEffect(() => {
     if (orderType !== 'delivery') return;
-    supabase.from('restaurant_config').select('value').eq('key', 'delivery_pricing').maybeSingle()
+    supabase.from('restaurant_config')
+      .select('delivery_base_fee, delivery_per_km, unilag_fee, free_first_km')
+      .maybeSingle()
       .then(({ data }) => {
-        if (data?.value) {
-          const v = data.value as Record<string, number>;
+        if (data) {
           setDeliveryConfig({
-            baseFee:     v.base_fee     ?? 500,
-            perKmRate:   v.per_km_rate  ?? 200,
-            unilagFee:   v.unilag_fee   ?? 500,
-            freeFirstKm: v.free_first_km ?? 1,
+            baseFee:     (data.delivery_base_fee as number) ?? 500,
+            perKmRate:   (data.delivery_per_km   as number) ?? 200,
+            unilagFee:   (data.unilag_fee         as number) ?? 500,
+            freeFirstKm: (data.free_first_km      as number) ?? 1,
           });
         }
       });

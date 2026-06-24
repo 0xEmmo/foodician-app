@@ -74,6 +74,7 @@ export default function AdminPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [deliveryPricing, setDeliveryPricing] = useState({ base_fee: 500, per_km_rate: 200, unilag_fee: 500, free_first_km: 1 });
   const [savingPricing,  setSavingPricing]  = useState(false);
+  const [configRowId,    setConfigRowId]    = useState<string | null>(null);
 
   // ─── Fetch functions ───────────────────────────────────────────────────────
   const fetchRestaurantStatus = useCallback(async () => {
@@ -105,8 +106,19 @@ export default function AdminPage() {
 
   const fetchDeliveryPricing = useCallback(async () => {
     try {
-      const { data } = await supabase.from('restaurant_config').select('value').eq('key', 'delivery_pricing').maybeSingle();
-      if (data?.value) setDeliveryPricing(data.value as typeof deliveryPricing);
+      const { data } = await supabase
+        .from('restaurant_config')
+        .select('id, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km')
+        .maybeSingle();
+      if (data) {
+        setConfigRowId(data.id as string);
+        setDeliveryPricing({
+          base_fee:     (data.delivery_base_fee as number) ?? 500,
+          per_km_rate:  (data.delivery_per_km   as number) ?? 200,
+          unilag_fee:   (data.unilag_fee         as number) ?? 500,
+          free_first_km: (data.free_first_km     as number) ?? 1,
+        });
+      }
     } catch {}
   }, []);
 
@@ -213,7 +225,18 @@ export default function AdminPage() {
 
   const saveDeliveryPricing = async () => {
     setSavingPricing(true);
-    await supabase.from('restaurant_config').upsert({ key: 'delivery_pricing', value: deliveryPricing, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    const payload = {
+      delivery_base_fee: deliveryPricing.base_fee,
+      delivery_per_km:   deliveryPricing.per_km_rate,
+      unilag_fee:        deliveryPricing.unilag_fee,
+      free_first_km:     deliveryPricing.free_first_km,
+      updated_at:        new Date().toISOString(),
+    };
+    if (configRowId) {
+      await supabase.from('restaurant_config').update(payload).eq('id', configRowId);
+    } else {
+      await supabase.from('restaurant_config').insert(payload);
+    }
     setSavingPricing(false);
     alert('Delivery pricing saved!');
   };
