@@ -144,15 +144,20 @@ function AuthGate() {
       style={{ background: "linear-gradient(180deg,rgba(0,0,0,0.55) 0%,#050505 100%),url('https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=480&q=80') center/cover" }}
     >
       <div className="bg-[rgba(12,12,12,0.92)] backdrop-blur-[24px] border border-[#1f1f1f] rounded-[24px] p-7 shadow-[0_20px_60px_rgba(0,0,0,0.9)]">
-        <Image
-          src="https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=100&q=80"
-          alt="Logo" width={58} height={58}
-          className="rounded-full border-2 border-[#6B000A] mb-4 shadow-[0_0_20px_rgba(232,25,44,0.35)]"
-        />
-        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '2.25rem', color: '#fff', lineHeight: 1.05, marginBottom: 6 }}>
-          Treats by<br />Foodician
+        <div className="flex flex-col items-center mb-5">
+          <Image
+            src="/logo.jpg"
+            alt="Treats by Foodician"
+            width={100}
+            height={100}
+            className="rounded-full border-2 border-[#6B000A] shadow-[0_0_24px_rgba(232,25,44,0.4)] mb-3"
+          />
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.9rem', color: '#fff', lineHeight: 1.05, textAlign: 'center', letterSpacing: 1 }}>
+            Treats by Foodician
+          </div>
+          <span className="text-[0.6rem] tracking-[3px] text-[#F5C300] uppercase font-bold mt-1">· Pickup & Delivery ·</span>
         </div>
-        <p className="text-[0.875rem] text-[#666] mb-6">
+        <p className="text-[0.875rem] text-[#666] mb-6 text-center">
           {isLogin ? 'Sign in to continue' : 'Create a new account'}
         </p>
 
@@ -1193,13 +1198,13 @@ export default function HomePage() {
       {/* Topbar */}
       <div className="bg-black border-b border-[rgba(232,25,44,0.15)] px-4 py-3.5 flex items-center justify-between flex-shrink-0 sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#6B000A] shadow-[0_0_12px_rgba(245,195,0,0.25)] flex items-center justify-center bg-black flex-shrink-0">
+          <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#6B000A] shadow-[0_0_12px_rgba(245,195,0,0.25)] flex-shrink-0">
             <Image
-              src="https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=100&q=80"
-              alt="Logo"
+              src="/logo.jpg"
+              alt="Treats by Foodician"
               width={44}
               height={44}
-              className="object-cover rounded-full"
+              className="object-cover w-full h-full"
             />
           </div>
           <div className="flex flex-col">
@@ -1334,6 +1339,60 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* Footer */}
+      <footer className="border-t border-[#161616] bg-[#0A0A0A] px-4 py-10 text-center">
+        <div className="flex justify-center mb-4">
+          <Image src="/logo.jpg" alt="Treats by Foodician" width={80} height={80} className="rounded-full border-2 border-[#6B000A] shadow-[0_0_18px_rgba(232,25,44,0.25)]" />
+        </div>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.5rem', color: '#fff', letterSpacing: 2 }}>
+          Treats by Foodician
+        </div>
+        <div className="text-[0.6rem] text-[#F5C300] tracking-[3px] uppercase font-bold mt-1 mb-6">
+          · Pickup & Delivery · UNILAG ·
+        </div>
+
+        {/* Social links */}
+        <div className="flex justify-center gap-3 flex-wrap mb-5">
+          <a
+            href="https://www.instagram.com/treatsbyfoodician_/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] border border-[#262626] bg-[#161616] text-[#A0A0A0] text-[0.8rem] font-semibold no-underline hover:border-[#E1306C] hover:text-[#E1306C] transition-colors"
+            style={{ fontFamily: "'DM Sans', sans-serif" }}
+          >
+            {/* Instagram icon */}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+              <circle cx="12" cy="12" r="4"/>
+              <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"/>
+            </svg>
+            @treatsbyfoodician_
+          </a>
+          <a
+            href="https://www.tiktok.com/@treatsbyfoodicianng"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] border border-[#262626] bg-[#161616] text-[#A0A0A0] text-[0.8rem] font-semibold no-underline hover:border-white hover:text-white transition-colors"
+            style={{ fontFamily: "'DM Sans', sans-serif" }}
+          >
+            {/* TikTok icon */}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V9a8.16 8.16 0 004.77 1.52V7.04a4.85 4.85 0 01-1-.35z"/>
+            </svg>
+            @treatsbyfoodicianng
+          </a>
+        </div>
+
+        {/* Phone */}
+        <a href="tel:09015845354" className="text-[#555] text-[0.8rem] no-underline hover:text-[#A0A0A0] transition-colors" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+          📞 09015845354
+        </a>
+
+        <div className="text-[#2a2a2a] text-[0.65rem] mt-6" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+          © {new Date().getFullYear()} Treats by Foodician. All rights reserved.
+        </div>
+      </footer>
 
       <CartSheet open={cartOpen} onClose={() => setCartOpen(false)} menuItems={menuItems} />
     </div>
