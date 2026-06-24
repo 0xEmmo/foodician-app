@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -10,6 +11,8 @@ import { supabase } from '@/src/lib/supabase';
 import { getAdminUnreadTotal } from '@/src/lib/chat';
 import type { PromoCode } from '@/src/lib/promos';
 import AdminSidebar, { COLLAPSED_W } from '@/src/components/AdminSidebar';
+
+const RestaurantMapPicker = dynamic(() => import('@/src/components/RestaurantMapPicker'), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ShopHour = { id: string; day_of_week: number; open_time: string; close_time: string; is_closed: boolean };
@@ -75,6 +78,8 @@ export default function AdminPage() {
   const [deliveryPricing, setDeliveryPricing] = useState({ base_fee: 500, per_km_rate: 200, unilag_fee: 500, free_first_km: 1 });
   const [savingPricing,  setSavingPricing]  = useState(false);
   const [configRowId,    setConfigRowId]    = useState<string | null>(null);
+  const [restaurantLat,  setRestaurantLat]  = useState(6.5205);
+  const [restaurantLng,  setRestaurantLng]  = useState(3.3958);
 
   // ─── Fetch functions ───────────────────────────────────────────────────────
   const fetchRestaurantStatus = useCallback(async () => {
@@ -108,15 +113,17 @@ export default function AdminPage() {
     try {
       const { data } = await supabase
         .from('restaurant_config')
-        .select('id, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km')
+        .select('id, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km, latitude, longitude')
         .maybeSingle();
       if (data) {
         setConfigRowId(data.id as string);
+        if (data.latitude)  setRestaurantLat(data.latitude  as number);
+        if (data.longitude) setRestaurantLng(data.longitude as number);
         setDeliveryPricing({
-          base_fee:     (data.delivery_base_fee as number) ?? 500,
-          per_km_rate:  (data.delivery_per_km   as number) ?? 200,
-          unilag_fee:   (data.unilag_fee         as number) ?? 500,
-          free_first_km: (data.free_first_km     as number) ?? 1,
+          base_fee:      (data.delivery_base_fee as number) ?? 500,
+          per_km_rate:   (data.delivery_per_km   as number) ?? 200,
+          unilag_fee:    (data.unilag_fee         as number) ?? 500,
+          free_first_km: (data.free_first_km      as number) ?? 1,
         });
       }
     } catch {}
@@ -797,6 +804,23 @@ export default function AdminPage() {
               >
                 {savingPricing ? 'Saving…' : 'Save Pricing'}
               </button>
+            </div>
+
+            {/* ── Restaurant Location ── */}
+            <div style={{ marginTop: '2.5rem' }}>
+              <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', marginBottom: '0.25rem' }}>Restaurant Location</h2>
+              <p style={{ fontSize: '0.8rem', color: '#A0A0A0', marginBottom: '1.25rem' }}>
+                Drag the pin or click anywhere on the map to set the restaurant&apos;s exact pickup point. This is used to calculate delivery distances.
+              </p>
+              {configRowId ? (
+                <RestaurantMapPicker
+                  initialLat={restaurantLat}
+                  initialLng={restaurantLng}
+                  configRowId={configRowId}
+                />
+              ) : (
+                <div style={{ height: 80, display: 'flex', alignItems: 'center', color: '#555', fontSize: '0.85rem' }}>Loading map…</div>
+              )}
             </div>
           </div>
         )}
