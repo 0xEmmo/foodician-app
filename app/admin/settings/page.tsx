@@ -45,12 +45,20 @@ export default function AdminSettingsPage() {
   const [shopHours,   setShopHours]   = useState<ShopHour[]>([]);
   const [savingHours, setSavingHours] = useState(false);
 
+  // ── Telegram ───────────────────────────────────────────────────────────────
+  const [tgToken,      setTgToken]      = useState('');
+  const [tgChatId,     setTgChatId]     = useState('');
+  const [savingTg,     setSavingTg]     = useState(false);
+  const [savedTg,      setSavedTg]      = useState(false);
+  const [testingTg,    setTestingTg]    = useState(false);
+  const [tgTestResult, setTgTestResult] = useState<'ok' | 'fail' | null>(null);
+
   // ── Load all config on mount ───────────────────────────────────────────────
   const load = useCallback(async () => {
     const [{ data: cfg }, { data: hours }] = await Promise.all([
       supabase
         .from('restaurant_config')
-        .select('id, restaurant_name, main_address, latitude, longitude, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km')
+        .select('id, restaurant_name, main_address, latitude, longitude, delivery_base_fee, delivery_per_km, unilag_fee, free_first_km, telegram_bot_token, telegram_chat_id')
         .maybeSingle(),
       supabase.from('shop_hours').select('*').order('day_of_week'),
     ]);
@@ -67,6 +75,8 @@ export default function AdminSettingsPage() {
         unilag_fee:    (cfg.unilag_fee         as number) ?? 500,
         free_first_km: (cfg.free_first_km      as number) ?? 1,
       });
+      if (cfg.telegram_bot_token) setTgToken(cfg.telegram_bot_token as string);
+      if (cfg.telegram_chat_id)   setTgChatId(cfg.telegram_chat_id  as string);
     }
     if (hours) setShopHours(hours as ShopHour[]);
   }, []);
@@ -101,6 +111,42 @@ export default function AdminSettingsPage() {
     setSavingPricing(false);
     setSavedPricing(true);
     setTimeout(() => setSavedPricing(false), 3500);
+  };
+
+  // ── Save Telegram credentials ─────────────────────────────────────────────
+  const saveTelegram = async () => {
+    if (!configRowId) return;
+    setSavingTg(true);
+    await supabase.from('restaurant_config')
+      .update({ telegram_bot_token: tgToken.trim(), telegram_chat_id: tgChatId.trim(), updated_at: new Date().toISOString() })
+      .eq('id', configRowId);
+    setSavingTg(false);
+    setSavedTg(true);
+    setTimeout(() => setSavedTg(false), 3500);
+  };
+
+  const testTelegram = async () => {
+    setTestingTg(true);
+    setTgTestResult(null);
+    try {
+      const res = await fetch('/api/telegram/notify', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          status:       'received',
+          customerName: 'Test Customer',
+          items:        ['Spaghetti + Chicken', 'Fried Plantain'],
+          total:        5500,
+          orderType:    'pickup',
+        }),
+      });
+      const data = await res.json() as { ok: boolean };
+      setTgTestResult(data.ok ? 'ok' : 'fail');
+    } catch {
+      setTgTestResult('fail');
+    } finally {
+      setTestingTg(false);
+    }
   };
 
   // ── Shop hours helpers ─────────────────────────────────────────────────────
@@ -237,6 +283,70 @@ export default function AdminSettingsPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* ── Telegram Notifications ──────────────────────────────────────── */}
+        <div style={sectionStyle}>
+          <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.6rem', color: '#F5C300', marginBottom: '0.25rem' }}>Telegram Notifications</h2>
+          <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '1.25rem' }}>
+            Get instant alerts on your phone when orders are placed or status changes.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+            <div>
+              <label style={{ fontSize: '0.72rem', color: '#A0A0A0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 6 }}>Bot Token</label>
+              <input
+                type="text"
+                value={tgToken}
+                onChange={e => setTgToken(e.target.value)}
+                placeholder="e.g. 8986152309:AAH..."
+                style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '0.82rem' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.72rem', color: '#A0A0A0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 6 }}>Chat ID</label>
+              <input
+                type="text"
+                value={tgChatId}
+                onChange={e => setTgChatId(e.target.value)}
+                placeholder="e.g. 8440923962"
+                style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '0.82rem' }}
+              />
+            </div>
+          </div>
+
+          {/* Test result banner */}
+          {tgTestResult && (
+            <div style={{
+              marginTop: '0.875rem', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', fontWeight: 600,
+              background: tgTestResult === 'ok' ? 'rgba(34,197,94,0.1)' : 'rgba(232,25,44,0.1)',
+              border: `1px solid ${tgTestResult === 'ok' ? 'rgba(34,197,94,0.35)' : 'rgba(232,25,44,0.35)'}`,
+              color: tgTestResult === 'ok' ? '#22C55E' : '#E8192C',
+            }}>
+              {tgTestResult === 'ok' ? '✓ Test message sent! Check your Telegram.' : '✗ Failed. Check your bot token and chat ID.'}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+            <button
+              onClick={saveTelegram}
+              disabled={savingTg || !configRowId}
+              style={{ background: savedTg ? 'rgba(34,197,94,0.12)' : savingTg ? '#262626' : '#E8192C', color: savedTg ? '#22C55E' : '#fff', border: savedTg ? '1px solid rgba(34,197,94,0.35)' : 'none', padding: '0.65rem 1.75rem', borderRadius: 8, cursor: savingTg ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: savingTg ? 0.6 : 1, transition: 'all 0.25s' }}
+            >
+              {savedTg ? 'Saved ✓' : savingTg ? 'Saving…' : 'Save Credentials'}
+            </button>
+            <button
+              onClick={testTelegram}
+              disabled={testingTg || !tgToken || !tgChatId}
+              style={{ background: 'rgba(245,195,0,0.08)', color: '#F5C300', border: '1px solid rgba(245,195,0,0.3)', padding: '0.65rem 1.75rem', borderRadius: 8, cursor: testingTg ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: testingTg ? 0.6 : 1 }}
+            >
+              {testingTg ? 'Sending…' : '📱 Test Notification'}
+            </button>
+          </div>
+
+          <p style={{ fontSize: '0.72rem', color: '#444', marginTop: '0.875rem' }}>
+            Bot: <a href="https://t.me/treatsbyfoodician_bot" target="_blank" rel="noopener noreferrer" style={{ color: '#666', textDecoration: 'none' }}>@treatsbyfoodician_bot</a>
+          </p>
         </div>
 
       </div>

@@ -14,6 +14,7 @@ import PromoCodeInput from '@/src/components/PromoCodeInput';
 import { supabase } from '@/src/lib/supabase';
 import { generateReceiptPDF } from '@/src/lib/receipts';
 import { applyReferralCode } from '@/src/lib/referrals';
+import { notifyTelegram } from '@/src/lib/notifyTelegram';
 import type { PromoCode } from '@/src/lib/promos';
 
 const CustomerMapOverlay = dynamic(
@@ -538,6 +539,16 @@ function CartSheet({
 
     addOrder(orderData as Parameters<typeof addOrder>[0]);
     sendWhatsAppNotification(code, itemsArray, total);
+
+    // Telegram: new order alert
+    notifyTelegram({
+      status:       'received',
+      customerName: sessionUser?.name || 'Customer',
+      items:        itemsArray,
+      total,
+      orderType,
+      address:      deliveryData?.address,
+    });
 
     try {
       await fetch('/api/send-order-email', {

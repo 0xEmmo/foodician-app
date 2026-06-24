@@ -6,6 +6,7 @@ import { ChefHat, RefreshCw, ArrowLeft } from "lucide-react";
 import { supabase } from "@/src/lib/supabase";
 import { useAppStore, type Order } from "@/src/store/useAppStore";
 import KDSOrderCard from "@/src/components/KDSOrderCard";
+import { notifyTelegram } from "@/src/lib/notifyTelegram";
 
 type ActiveOrder = Order & {
   id: number | string;
@@ -62,6 +63,25 @@ export default function KitchenPage() {
     await supabase.from("orders").update({ status: next }).eq("id", order.id);
     setAdvancing((prev) => ({ ...prev, [String(order.id)]: false }));
     fetchOrders();
+
+    const statusMap: Record<string, 'cooking' | 'ready' | 'out_for_delivery' | 'completed'> = {
+      Preparing:           'cooking',
+      Ready:               'ready',
+      'Out for Delivery':  'out_for_delivery',
+      Completed:           'completed',
+    };
+    const telegramStatus = statusMap[next];
+    if (telegramStatus) {
+      const items = Array.isArray(order.items) ? (order.items as string[]) : [];
+      notifyTelegram({
+        status:       telegramStatus,
+        customerName: order.user_name || 'Customer',
+        items,
+        total:        order.total_amount,
+        orderType:    order.order_type,
+        address:      order.delivery_address,
+      });
+    }
   }
 
   function makeCard(order: ActiveOrder) {

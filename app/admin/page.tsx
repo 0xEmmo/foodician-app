@@ -10,6 +10,7 @@ import { supabase } from '@/src/lib/supabase';
 import { getAdminUnreadTotal } from '@/src/lib/chat';
 import type { PromoCode } from '@/src/lib/promos';
 import AdminSidebar, { COLLAPSED_W } from '@/src/components/AdminSidebar';
+import { notifyTelegram } from '@/src/lib/notifyTelegram';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ShopHour = { id: string; day_of_week: number; open_time: string; close_time: string; is_closed: boolean };
@@ -193,6 +194,24 @@ export default function AdminPage() {
         }
       }
       setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+
+      const statusMap: Record<string, 'ready' | 'completed' | 'cancelled'> = {
+        Ready:     'ready',
+        Completed: 'completed',
+        Cancelled: 'cancelled',
+      };
+      const telegramStatus = statusMap[status];
+      if (telegramStatus) {
+        const order = orders.find(o => o.id === id);
+        if (order) {
+          notifyTelegram({
+            status:       telegramStatus,
+            customerName: order.user_name,
+            items:        Array.isArray(order.items) ? order.items as string[] : [],
+            total:        order.total_amount,
+          });
+        }
+      }
     } catch { alert('Update failed'); }
     finally { setUpdatingId(null); }
   };
