@@ -68,7 +68,12 @@ export default function AdminPage() {
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [promoForm,   setPromoForm]   = useState({ code: '', discount_type: 'fixed' as 'fixed' | 'percentage', discount_value: 0, min_order_amount: '', max_uses: '', expiry_date: '', description: '' });
   const [savingPromo, setSavingPromo] = useState(false);
-  const [syncingImages, setSyncingImages] = useState(false);
+  const [syncingImages,  setSyncingImages]  = useState(false);
+  const [imageFile,      setImageFile]      = useState<File | null>(null);
+  const [imagePreview,   setImagePreview]   = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [deliveryPricing, setDeliveryPricing] = useState({ base_fee: 500, per_km_rate: 200, unilag_fee: 500, free_first_km: 1 });
+  const [savingPricing,  setSavingPricing]  = useState(false);
 
   // ─── Fetch functions ───────────────────────────────────────────────────────
   const fetchRestaurantStatus = useCallback(async () => {
@@ -95,6 +100,13 @@ export default function AdminPage() {
     try {
       const { data } = await supabase.from('ratings').select('*').order('created_at', { ascending: false }).limit(50);
       if (data) setReviews(data as Rating[]);
+    } catch {}
+  }, []);
+
+  const fetchDeliveryPricing = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('restaurant_config').select('value').eq('key', 'delivery_pricing').maybeSingle();
+      if (data?.value) setDeliveryPricing(data.value as typeof deliveryPricing);
     } catch {}
   }, []);
 
@@ -139,12 +151,13 @@ export default function AdminPage() {
       await Promise.all([
         fetchOrders(), fetchMenu(), fetchUsers(),
         fetchRestaurantStatus(), fetchShopHours(), fetchUnread(), fetchPromos(), fetchReviews(),
+        fetchDeliveryPricing(),
       ]);
     };
     init()
       .then(() => setLoading(false))
       .catch(() => setError('Failed to load dashboard.'));
-  }, [fetchOrders, fetchMenu, fetchUsers, fetchRestaurantStatus, fetchShopHours, fetchUnread, fetchPromos, fetchReviews]);
+  }, [fetchOrders, fetchMenu, fetchUsers, fetchRestaurantStatus, fetchShopHours, fetchUnread, fetchPromos, fetchReviews, fetchDeliveryPricing]);
 
   useEffect(() => { const i = setInterval(fetchOrders, 15000); return () => clearInterval(i); }, [fetchOrders]);
 
@@ -173,10 +186,36 @@ export default function AdminPage() {
   };
 
   const saveMenuItem = async () => {
+    let finalImageUrl = menuForm.image_url;
+    if (imageFile) {
+      setUploadingImage(true);
+      const ext      = imageFile.name.split('.').pop() ?? 'jpg';
+      const fileName = `${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('menu-images').upload(fileName, imageFile, { upsert: true });
+      if (upErr) { alert('Image upload failed: ' + upErr.message); setUploadingImage(false); return; }
+      const { data: { publicUrl } } = supabase.storage.from('menu-images').getPublicUrl(fileName);
+      finalImageUrl = publicUrl;
+      setUploadingImage(false);
+    }
     const method = editingItem ? 'PUT' : 'POST';
-    const body = editingItem ? { id: editingItem.id, ...menuForm } : menuForm;
+    const body   = editingItem
+      ? { id: editingItem.id, ...menuForm, image_url: finalImageUrl }
+      : { ...menuForm, image_url: finalImageUrl };
     const res = await fetch('/api/admin/menu', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (res.ok) { fetchMenu(); setEditingItem(null); setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 }); }
+    if (res.ok) {
+      fetchMenu();
+      setEditingItem(null);
+      setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 });
+      setImageFile(null);
+      setImagePreview('');
+    }
+  };
+
+  const saveDeliveryPricing = async () => {
+    setSavingPricing(true);
+    await supabase.from('restaurant_config').upsert({ key: 'delivery_pricing', value: deliveryPricing, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    setSavingPricing(false);
+    alert('Delivery pricing saved!');
   };
 
   const deleteMenuItem = async (id: number) => {
@@ -441,9 +480,9 @@ export default function AdminPage() {
             <div style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
               <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', color: '#F5C300', marginBottom: '0.875rem' }}>{editingItem ? 'Edit Item' : 'Add New Item'}</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
-                {[['text', 'Name', 'name'], ['text', 'Description', 'desc'], ['text', 'Image URL', 'image_url']].map(([type, ph, key]) => (
-                  <input key={key} type={type} placeholder={ph} value={(menuForm as Record<string, unknown>)[key] as string}
-                    onChange={e => setMenuForm({ ...menuForm, [key]: e.target.value })} style={inputStyle} />
+                {(['name', 'desc'] as const).map((key) => (
+                  <input key={key} type="text" placeholder={key === 'name' ? 'Dish Name' : 'Description'}
+                    value={menuForm[key]} onChange={e => setMenuForm({ ...menuForm, [key]: e.target.value })} style={inputStyle} />
                 ))}
                 <input type="number" placeholder="Price (₦)" value={menuForm.price || ''} onChange={e => setMenuForm({ ...menuForm, price: parseInt(e.target.value) || 0 })} style={inputStyle} />
                 <input type="number" placeholder="Prep time (mins)" value={menuForm.mins || ''} onChange={e => setMenuForm({ ...menuForm, mins: parseInt(e.target.value) || 0 })} style={inputStyle} />
@@ -453,10 +492,32 @@ export default function AdminPage() {
                   <option value="protein">Proteins</option>
                   <option value="sides">Sides</option>
                 </select>
+                {/* ── Photo upload ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{ fontSize: '0.72rem', color: '#A0A0A0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>Dish Photo</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setImageFile(file);
+                      setImagePreview(URL.createObjectURL(file));
+                    }}
+                    style={{ ...inputStyle, cursor: 'pointer', fontSize: '0.8rem' }}
+                  />
+                  {(imagePreview || menuForm.image_url) && (
+                    <img src={imagePreview || menuForm.image_url} alt="preview"
+                      style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid #262626', marginTop: 2 }} />
+                  )}
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: '1rem' }}>
-                <button onClick={saveMenuItem} style={{ background: '#E8192C', color: '#fff', border: 'none', padding: '0.625rem 1.5rem', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>{editingItem ? 'Update' : 'Create'}</button>
-                {editingItem && <button onClick={() => { setEditingItem(null); setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 }); }} style={{ background: '#161616', color: '#A0A0A0', border: '1px solid #262626', padding: '0.625rem 1.25rem', borderRadius: 8, cursor: 'pointer' }}>Cancel</button>}
+              <div style={{ display: 'flex', gap: 8, marginTop: '1rem', alignItems: 'center' }}>
+                <button onClick={saveMenuItem} disabled={uploadingImage}
+                  style={{ background: uploadingImage ? '#262626' : '#E8192C', color: '#fff', border: 'none', padding: '0.625rem 1.5rem', borderRadius: 8, cursor: uploadingImage ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: uploadingImage ? 0.6 : 1 }}>
+                  {uploadingImage ? 'Uploading…' : editingItem ? 'Update' : 'Create'}
+                </button>
+                {editingItem && <button onClick={() => { setEditingItem(null); setMenuForm({ name: '', desc: '', price: 0, category: 'pasta', image_url: '', mins: 10 }); setImageFile(null); setImagePreview(''); }} style={{ background: '#161616', color: '#A0A0A0', border: '1px solid #262626', padding: '0.625rem 1.25rem', borderRadius: 8, cursor: 'pointer' }}>Cancel</button>}
               </div>
             </div>
             <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', color: '#F5C300', marginBottom: '0.75rem' }}>Existing Items ({menuItems.length})</h3>
@@ -675,6 +736,45 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+
+            {/* ── Delivery Pricing ── */}
+            <div style={{ marginTop: '2.5rem' }}>
+              <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.75rem', color: '#F5C300', marginBottom: '0.25rem' }}>Delivery Pricing</h2>
+              <p style={{ fontSize: '0.8rem', color: '#A0A0A0', marginBottom: '1.25rem' }}>
+                Changes take effect immediately for all new orders.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                {([
+                  ['Base Delivery Fee (₦)', 'base_fee'],
+                  ['Per KM Rate (₦/km)', 'per_km_rate'],
+                  ['UNILAG Flat Fee (₦)', 'unilag_fee'],
+                  ['Free First KM', 'free_first_km'],
+                ] as [string, keyof typeof deliveryPricing][]).map(([label, key]) => (
+                  <div key={key}>
+                    <label style={{ fontSize: '0.72rem', color: '#A0A0A0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 6 }}>{label}</label>
+                    <input
+                      type="number"
+                      value={deliveryPricing[key]}
+                      onChange={e => setDeliveryPricing({ ...deliveryPricing, [key]: Number(e.target.value) })}
+                      style={inputStyle}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#0C0C0C', borderRadius: 8, fontSize: '0.8rem', color: '#A0A0A0', border: '1px solid #1a1a1a', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                <span>3 km → <strong style={{ color: '#F5F5F5' }}>₦{Math.ceil(deliveryPricing.base_fee + Math.max(0, 3 - deliveryPricing.free_first_km) * deliveryPricing.per_km_rate).toLocaleString()}</strong></span>
+                <span>5 km → <strong style={{ color: '#F5F5F5' }}>₦{Math.ceil(deliveryPricing.base_fee + Math.max(0, 5 - deliveryPricing.free_first_km) * deliveryPricing.per_km_rate).toLocaleString()}</strong></span>
+                <span>10 km → <strong style={{ color: '#F5F5F5' }}>₦{Math.ceil(deliveryPricing.base_fee + Math.max(0, 10 - deliveryPricing.free_first_km) * deliveryPricing.per_km_rate).toLocaleString()}</strong></span>
+                <span>UNILAG → <strong style={{ color: '#F5F5F5' }}>₦{deliveryPricing.unilag_fee.toLocaleString()}</strong></span>
+              </div>
+              <button
+                onClick={saveDeliveryPricing}
+                disabled={savingPricing}
+                style={{ marginTop: '1rem', background: savingPricing ? '#262626' : '#E8192C', color: '#fff', border: 'none', padding: '0.75rem 2rem', borderRadius: 8, cursor: savingPricing ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.9rem', opacity: savingPricing ? 0.6 : 1 }}
+              >
+                {savingPricing ? 'Saving…' : 'Save Pricing'}
+              </button>
+            </div>
           </div>
         )}
 

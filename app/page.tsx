@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen, MapPin } from 'lucide-react';
 import { useAppStore } from '@/src/store/useAppStore';
 import { calculateServiceCharge } from '@/src/lib/serviceCharge';
-import { calculateDeliveryFee, RESTAURANT_LAT, RESTAURANT_LNG } from '@/src/lib/delivery';
+import { calculateDeliveryFee, RESTAURANT_LAT, RESTAURANT_LNG, type DeliveryConfig } from '@/src/lib/delivery';
 import { haversineDistance } from '@/src/lib/distance';
 import MenuCard from '@/src/components/MenuCard';
 import FavoritesCarousel from '@/src/components/FavoritesCarousel';
@@ -274,6 +274,7 @@ function CartSheet({
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
+  const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig>({ baseFee: 500, perKmRate: 200, unilagFee: 500, freeFirstKm: 1 });
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [houseDetail, setHouseDetail] = useState('');
   const [deliveryData, setDeliveryData] = useState<{
@@ -317,11 +318,29 @@ function CartSheet({
     }
   };
 
+  // ─── Fetch live delivery pricing from admin settings ─────────────────────
+  useEffect(() => {
+    if (orderType !== 'delivery') return;
+    supabase.from('restaurant_config').select('value').eq('key', 'delivery_pricing').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          const v = data.value as Record<string, number>;
+          setDeliveryConfig({
+            baseFee:     v.base_fee     ?? 500,
+            perKmRate:   v.per_km_rate  ?? 200,
+            unilagFee:   v.unilag_fee   ?? 500,
+            freeFirstKm: v.free_first_km ?? 1,
+          });
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderType]);
+
   // ─── UNILAG toggle ────────────────────────────────────────────────────────
   const handleUnilagToggle = (on: boolean) => {
     setIsUnilag(on);
     if (on) {
-      setDeliveryFee(500);
+      setDeliveryFee(deliveryConfig.unilagFee ?? 500);
       setEstimatedTime(25);
       setDeliveryData(null);
       setDeliveryAddress('');
@@ -371,7 +390,7 @@ function CartSheet({
     setDeliveryAddress(label);
     setSuggestions([]);
     const km = haversineDistance(RESTAURANT_LAT, RESTAURANT_LNG, lat, lng);
-    setDeliveryFee(calculateDeliveryFee(false, lat, lng));
+    setDeliveryFee(calculateDeliveryFee(false, lat, lng, deliveryConfig));
     setEstimatedTime(Math.round((mins ?? 15) + km * 3));
     setDeliveryData({ address: s.display_name, lat, lng, distance: km });
   };
