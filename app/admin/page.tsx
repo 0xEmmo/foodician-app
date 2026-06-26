@@ -18,8 +18,9 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 type Order = {
   id: number; user_name: string; verification_code: string;
-  total_amount: number; status: 'Confirmed' | 'Ready' | 'Cancelled' | 'Completed';
-  items: string[]; created_at: string; payment_method?: string;
+  total_amount: number;
+  status: 'Confirmed' | 'Preparing' | 'Ready' | 'Out for Delivery' | 'Arrived' | 'Delivered' | 'Completed' | 'Cancelled';
+  items: string[]; created_at: string; payment_method?: string; order_type?: string;
 };
 
 type MenuItem = { id: number; name: string; desc: string; price: number; category: string; image_url: string; mins: number };
@@ -332,11 +333,11 @@ export default function AdminPage() {
   );
 
   // ─── Filtered orders ────────────────────────────────────────────────────────
-  const pendingStatuses = new Set(['Confirmed', 'Ready']);
+  const pendingStatuses = new Set(['Confirmed', 'Preparing', 'Ready', 'Out for Delivery', 'Arrived']);
   const displayOrders = orders.filter(o =>
     orderFilter === 'all' ? true :
     orderFilter === 'pending' ? pendingStatuses.has(o.status) :
-    o.status === 'Completed' || o.status === 'Cancelled'
+    o.status === 'Completed' || o.status === 'Delivered' || o.status === 'Cancelled'
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -379,7 +380,7 @@ export default function AdminPage() {
                 {(['all', 'pending', 'completed'] as const).map(f => (
                   <button key={f} onClick={() => setOrderFilter(f)} style={{ padding: '0.3rem 0.875rem', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', background: orderFilter === f ? '#E8192C' : '#161616', border: `1px solid ${orderFilter === f ? '#E8192C' : '#262626'}`, color: orderFilter === f ? '#fff' : '#A0A0A0' }}>
                     {f.charAt(0).toUpperCase() + f.slice(1)}{' '}
-                    {f === 'all' ? orders.length : f === 'pending' ? orders.filter(o => pendingStatuses.has(o.status)).length : orders.filter(o => o.status === 'Completed' || o.status === 'Cancelled').length}
+                    {f === 'all' ? orders.length : f === 'pending' ? orders.filter(o => pendingStatuses.has(o.status)).length : orders.filter(o => o.status === 'Completed' || o.status === 'Delivered' || o.status === 'Cancelled').length}
                   </button>
                 ))}
               </div>
@@ -393,8 +394,9 @@ export default function AdminPage() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '0.875rem' }}>
                 {displayOrders.map(order => {
-                  const statusColor = order.status === 'Ready' ? '#22C55E' : order.status === 'Cancelled' ? '#ef4444' : order.status === 'Completed' ? '#888' : '#F5C300';
-                  const statusBg    = order.status === 'Ready' ? 'rgba(34,197,94,0.1)' : order.status === 'Cancelled' ? 'rgba(239,68,68,0.1)' : order.status === 'Completed' ? 'rgba(255,255,255,0.04)' : 'rgba(245,195,0,0.1)';
+                  const isDone = order.status === 'Completed' || order.status === 'Delivered';
+                  const statusColor = order.status === 'Ready' ? '#22C55E' : order.status === 'Cancelled' ? '#ef4444' : isDone ? '#888' : order.status === 'Out for Delivery' || order.status === 'Arrived' ? '#60a5fa' : order.status === 'Preparing' ? '#fb923c' : '#F5C300';
+                  const statusBg    = order.status === 'Ready' ? 'rgba(34,197,94,0.1)' : order.status === 'Cancelled' ? 'rgba(239,68,68,0.1)' : isDone ? 'rgba(255,255,255,0.04)' : order.status === 'Out for Delivery' || order.status === 'Arrived' ? 'rgba(96,165,250,0.1)' : order.status === 'Preparing' ? 'rgba(251,146,60,0.1)' : 'rgba(245,195,0,0.1)';
                   return (
                     <div key={order.id} style={{ background: '#0C0C0C', border: '1px solid #1a1a1a', borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {/* Row 1: status + code + time */}
@@ -429,19 +431,22 @@ export default function AdminPage() {
                       </div>
                       {/* Row 4: actions */}
                       <div style={{ display: 'flex', gap: 6 }}>
-                        {order.status !== 'Ready' && order.status !== 'Cancelled' && order.status !== 'Completed' && (
+                        {/* Pickup flow: Confirmed/Preparing → Ready */}
+                        {order.status === 'Confirmed' || order.status === 'Preparing' ? (
                           <button onClick={() => updateOrderStatus(order.id, 'Ready')} disabled={updatingId === order.id}
                             style={{ flex: 1, padding: '0.45rem', background: 'rgba(34,197,94,0.08)', border: '1px solid #22C55E', borderRadius: 8, color: '#22C55E', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
                             ✅ Ready
                           </button>
-                        )}
+                        ) : null}
+                        {/* Pickup: Ready → Completed */}
                         {order.status === 'Ready' && (
                           <button onClick={() => updateOrderStatus(order.id, 'Completed')} disabled={updatingId === order.id}
                             style={{ flex: 1, padding: '0.45rem', background: 'rgba(96,165,250,0.08)', border: '1px solid #60a5fa', borderRadius: 8, color: '#60a5fa', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}>
                             ✔ Collected
                           </button>
                         )}
-                        {order.status !== 'Cancelled' && order.status !== 'Completed' && (
+                        {/* Cancel button — only for non-terminal statuses */}
+                        {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && (
                           <button onClick={() => updateOrderStatus(order.id, 'Cancelled')} disabled={updatingId === order.id}
                             style={{ padding: '0.45rem 0.75rem', background: 'transparent', border: '1px solid #262626', borderRadius: 8, color: '#555', cursor: 'pointer', fontSize: '0.8rem' }}>
                             Cancel
