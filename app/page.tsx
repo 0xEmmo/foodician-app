@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
-import { Bike, Store, Wallet, CreditCard, Landmark, NotebookPen, MapPin, Locate, Map } from 'lucide-react';
+import { Bike, Store, Wallet, CreditCard, NotebookPen, MapPin, Locate, Map } from 'lucide-react';
 import { useAppStore } from '@/src/store/useAppStore';
 import { calculateServiceCharge } from '@/src/lib/serviceCharge';
 import { calculateDeliveryFee, RESTAURANT_LAT, RESTAURANT_LNG, type DeliveryConfig } from '@/src/lib/delivery';
@@ -265,7 +265,7 @@ function CartSheet({
   const addTransaction = useAppStore((s) => s.addTransaction);
 
   const [showPay, setShowPay] = useState(false);
-  const [payMethod, setPayMethod] = useState<'wallet' | 'paystack' | 'transfer'>('wallet');
+  const [payMethod, setPayMethod] = useState<'wallet' | 'paystack'>('wallet');
   const [geocoding, setGeocoding]     = useState(false);
   const [suggestions, setSuggestions] = useState<{ lat: string; lon: string; display_name: string }[]>([]);
   const skipGeocode = useRef(false);
@@ -985,15 +985,15 @@ function CartSheet({
             </div>
 
             {/* Payment Method Selection */}
-            <div className="flex gap-3 mb-5 overflow-x-auto no-scrollbar">
-              {(['wallet', 'paystack', 'transfer'] as const).map((m) => (
+            <div className="flex gap-3 mb-5">
+              {(['wallet', 'paystack'] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => setPayMethod(m)}
-                  className={`flex-1 min-w-[100px] py-3 px-2 rounded-[10px] border text-[0.78rem] font-semibold cursor-pointer transition-all duration-200 flex flex-col items-center gap-1.5 ${payMethod === m ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C] shadow-[0_0_15px_rgba(232,25,44,0.2)]' : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'}`}
+                  className={`flex-1 py-3 px-2 rounded-[10px] border text-[0.78rem] font-semibold cursor-pointer transition-all duration-200 flex flex-col items-center gap-1.5 ${payMethod === m ? 'bg-[rgba(232,25,44,0.1)] text-white border-[#E8192C] shadow-[0_0_15px_rgba(232,25,44,0.2)]' : 'bg-[#161616] text-[#A0A0A0] border-[#262626]'}`}
                   style={{ fontFamily: "'DM Sans', sans-serif" }}
                 >
-                  {m === 'wallet' ? <><Wallet size={16} /> Wallet</> : m === 'paystack' ? <><CreditCard size={16} /> Card</> : <><Landmark size={16} /> Transfer</>}
+                  {m === 'wallet' ? <><Wallet size={16} /> Wallet</> : <><CreditCard size={16} /> Card / Bank</>}
                 </button>
               ))}
             </div>
@@ -1036,31 +1036,6 @@ function CartSheet({
               </div>
             )}
 
-            {/* Bank Transfer */}
-            {payMethod === 'transfer' && (
-              <div>
-                <div className="bg-[#161616] p-4 rounded-[10px] mb-4 text-[0.9rem] text-center">
-                  Transfer exactly <strong className="text-[#F5C300]">₦{total.toLocaleString()}</strong> to:<br /><br />
-                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.4rem', letterSpacing: '1px', color: '#fff' }}>0123456789</span><br />
-                  Access Bank · Treats by Foodician
-                  <p className="text-[0.7rem] text-yellow-400 mt-3">
-                    ⚠️ Your order will be prepared only after the restaurant verifies the payment. This may take time.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    if (confirm('Have you made the exact transfer? The restaurant will verify before cooking. Click OK only if you have paid.')) {
-                      finaliseOrder();
-                    }
-                  }}
-                  disabled={isSubmitting}
-                  className="w-full bg-[#22C55E] text-white border-none cursor-pointer py-4 rounded-[10px] text-[1.25rem] tracking-[2px] transition-all duration-200 hover:opacity-90 disabled:opacity-50"
-                  style={{ fontFamily: "'Bebas Neue', sans-serif" }}
-                >
-                  {isSubmitting ? 'PROCESSING...' : 'I HAVE COMPLETED THE TRANSFER →'}
-                </button>
-              </div>
-            )}
           </div>{/* end scrollable body */}
         </div>
       </div>
