@@ -1217,10 +1217,22 @@ export default function HomePage() {
         style={{ background: 'linear-gradient(135deg, #000000 0%, #1a0204 50%, #6B000A 100%)' }}
       >
         <div
-          className="absolute left-3 bottom-[-8px] pointer-events-none select-none opacity-[0.13] text-[#E8192C]"
-          style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '78px', whiteSpace: 'nowrap', letterSpacing: '1px', fontWeight: 900, transform: 'skewX(-4deg)' }}
+          className="absolute left-3 bottom-[-10px] pointer-events-none select-none"
+          style={{
+            fontFamily: "'Bebas Neue', sans-serif",
+            fontSize: '74px',
+            whiteSpace: 'nowrap',
+            letterSpacing: '2px',
+            fontWeight: 900,
+            transform: 'skewX(-5deg)',
+            color: 'transparent',
+            WebkitTextStroke: '1.5px rgba(232,25,44,0.55)',
+            textShadow: '0 0 40px rgba(232,25,44,0.18)',
+            opacity: 0.85,
+            lineHeight: 1,
+          }}
         >
-          FOODICIAN
+          GBẸ̀MÍDÉBÉ
         </div>
         <div
           className="absolute top-0 right-0 bottom-0 w-[45%] opacity-35 mix-blend-luminosity"
