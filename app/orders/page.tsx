@@ -48,14 +48,18 @@ function StatusTimeline({ status, orderType }: { status: string; orderType?: str
   }
 
   const steps = orderType === 'delivery' ? DELIVERY_STEPS : PICKUP_STEPS;
-  const activeIdx = steps.findIndex(s => s.key === status);
-  const safeIdx   = activeIdx === -1 ? 0 : activeIdx;
+  // Delivery orders that admin marked 'Completed' directly show as 'Delivered' (last step)
+  const normalised = orderType === 'delivery' && status === 'Completed' ? 'Delivered' : status;
+  const activeIdx = steps.findIndex(s => s.key === normalised);
+  const doneStatuses = new Set(['Completed', 'Delivered']);
+  const safeIdx = activeIdx !== -1 ? activeIdx : doneStatuses.has(status) ? steps.length - 1 : 0;
+  const allDone = doneStatuses.has(status) || (orderType !== 'delivery' && status === 'Completed');
 
   return (
     <div className="flex items-center gap-0 my-3">
       {steps.map((step, i) => {
-        const done   = i < safeIdx;
-        const active = i === safeIdx;
+        const done   = allDone ? i < steps.length : i < safeIdx;
+        const active = !allDone && i === safeIdx;
         return (
           <div key={step.key} className="flex items-center flex-1">
             <div className="flex flex-col items-center gap-1">
@@ -239,7 +243,7 @@ export default function OrdersPage() {
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#6B000A] flex items-center justify-center bg-black flex-shrink-0">
-              <img src="https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=100&q=80" alt="Logo" className="w-full h-full object-cover" />
+              <img src="/icon-192.png" alt="Foodician" className="w-full h-full object-cover" />
             </div>
             <div>
               <h1 className="text-white leading-none" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.25rem', letterSpacing: '0.5px' }}>My Orders</h1>
@@ -271,7 +275,7 @@ export default function OrdersPage() {
                         </div>
                         <div className="flex items-center gap-1 text-xs text-[#A0A0A0]">
                           <Clock size={11} />
-                          <span>{new Date(order.created_at).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span>{new Date(order.created_at).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                         </div>
                       </div>
                       <span className="text-lg font-black text-[#F5C300]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>
